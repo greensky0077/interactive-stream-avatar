@@ -25,6 +25,8 @@ export const mediaCanvasRefAtom = atom<RefObject<HTMLCanvasElement> | null>(
 export const avatarAtom = atom<RefObject<StreamingAvatarApi> | undefined>(
   undefined
 )
+// Expose a global restart hook so other components can request reconnection
+export const restartFnAtom = atom<(() => Promise<void>) | null>(null)
 
 //UI Atoms
 export const selectedNavItemAtom = atom<NavItem>({

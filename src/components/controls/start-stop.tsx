@@ -23,6 +23,7 @@ import {
   sessionDataAtom,
   streamAtom,
   voiceIdAtom,
+  restartFnAtom,
 } from "@/lib/atoms"
 
 import { Button } from "../ui/button"
@@ -53,6 +54,10 @@ export function StartStop() {
   const [avatar, setAvatar] = useAtom(avatarAtom) as [
     { current: StreamingAvatarApi | undefined },
     (value: { current: StreamingAvatarApi | undefined }) => void,
+  ]
+  const [, setRestartFn] = useAtom(restartFnAtom) as [
+    (() => Promise<void>) | null,
+    (fn: (() => Promise<void>) | null) => void
   ]
   const avatarRef = useRef<StreamingAvatarApi | undefined>()
   useEffect(() => {
@@ -141,8 +146,11 @@ export function StartStop() {
         console.log("Video dimensions:", videoWidth, videoHeight)
       }
     }
+    // expose restart function globally
+    setRestartFn(safeRestart)
     return () => {
       clearHeartbeat()
+      setRestartFn(null)
     }
   }, [mediaStreamRef, stream])
 
@@ -238,16 +246,24 @@ export function StartStop() {
       setSessionData(res!)
       setStream(avatarRef.current.mediaStream)
       setMediaStreamActive(true)
-      // attach track-end reconnect
+      // attach track-end/mute reconnect
       try {
         const ms = avatarRef.current.mediaStream
-        ms?.getVideoTracks()?.forEach((t) => (t.onended = () => safeRestart()))
-        ms?.getAudioTracks()?.forEach((t) => (t.onended = () => safeRestart()))
+        const attach = (t: MediaStreamTrack) => {
+          t.onended = () => safeRestart()
+          t.onmute = () => {
+            // if muted for more than 2s, consider connection broken
+            const tm = setTimeout(() => safeRestart(), 2000)
+            t.onunmute = () => clearTimeout(tm)
+          }
+        }
+        ms?.getVideoTracks()?.forEach(attach)
+        ms?.getAudioTracks()?.forEach(attach)
       } catch {}
       // start heartbeat
       clearHeartbeat()
       backoffRef.current = 1000
-      heartbeatTimerRef.current = setInterval(checkAlive, 25000)
+      heartbeatTimerRef.current = setInterval(checkAlive, 15000)
     } catch (e: any) {
       const message = e?.message || "Failed to start avatar session"
       setDebug(message)
