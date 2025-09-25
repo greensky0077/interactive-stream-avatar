@@ -1,10 +1,8 @@
-export const runtime = "nodejs"
-
 const api_token = process.env.HEYGEN_API_KEY
 
 export async function POST() {
   if (!api_token) {
-    return Response.json({ error: "HEYGEN_API_KEY is not defined" }, { status: 500 })
+    throw new Error("API token is not defined")
   }
 
   try {
@@ -20,19 +18,14 @@ export async function POST() {
       }
     )
 
-    const text = await response.text()
-    let data: any = undefined
-    try { data = text ? JSON.parse(text) : undefined } catch {}
-
     if (!response.ok) {
-      const message = (data && (data.message || data.error)) || response.statusText || "Request failed"
-      return Response.json({ error: message, status: response.status, data }, { status: response.status })
+      throw new Error(`Failed to fetch: ${response.statusText}`)
     }
+    const data = await response.json()
 
     return Response.json({ data })
   } catch (error: any) {
-    const msg = error?.message || "Unexpected error"
-    console.error("/api/grab error:", msg)
-    return Response.json({ error: msg }, { status: 500 })
+    console.error(error)
+    return Response.json({ error: error.message })
   }
 }

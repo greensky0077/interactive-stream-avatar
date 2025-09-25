@@ -23,7 +23,6 @@ import {
   sessionDataAtom,
   streamAtom,
   voiceIdAtom,
-  restartFnAtom,
 } from "@/lib/atoms"
 
 import { Button } from "../ui/button"
@@ -55,10 +54,6 @@ export function StartStop() {
     { current: StreamingAvatarApi | undefined },
     (value: { current: StreamingAvatarApi | undefined }) => void,
   ]
-  const [, setRestartFn] = useAtom(restartFnAtom) as [
-    (() => Promise<void>) | null,
-    (fn: (() => Promise<void>) | null) => void
-  ]
   const avatarRef = useRef<StreamingAvatarApi | undefined>()
   useEffect(() => {
     setAvatar(avatarRef)
@@ -66,13 +61,91 @@ export function StartStop() {
 
   const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const backoffRef = useRef<number>(1000)
-  const unauthorizedRef = useRef<boolean>(false)
+  const connectionStateRef = useRef<string>("new")
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   function clearHeartbeat() {
     if (heartbeatTimerRef.current) {
       clearInterval(heartbeatTimerRef.current)
       heartbeatTimerRef.current = null
     }
+  }
+
+  function clearReconnectTimeout() {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current)
+      reconnectTimeoutRef.current = null
+    }
+  }
+
+  function setupWebRTCConnectionMonitoring() {
+    if (!avatarRef.current?.mediaStream) return
+
+    // Try to get peer connection from video track
+    const videoTrack = avatarRef.current.mediaStream.getVideoTracks()[0]
+    if (!videoTrack) return
+
+    // Access peer connection through the track's sender (using any for WebRTC internals)
+    const sender = (videoTrack as any).sender?.transport?.iceTransport?.getConnectionState?.() ||
+                  (videoTrack as any).getSettings?.()?.peerConnection ||
+                  null
+    
+    if (!sender) {
+      // Fallback: monitor media stream state changes
+      setDebug("Using fallback connection monitoring")
+      const checkConnection = () => {
+        const isActive = avatarRef.current?.mediaStream?.active
+        if (!isActive && connectionStateRef.current !== 'closed') {
+          setConnectionHealth("degraded" as any)
+          setDebug("Media stream inactive. Attempting to reconnect...")
+          clearReconnectTimeout()
+          reconnectTimeoutRef.current = setTimeout(() => safeRestart(), 2000)
+        }
+      }
+      
+      // Check every 5 seconds
+      const interval = setInterval(checkConnection, 5000)
+      return () => clearInterval(interval)
+    }
+
+    // Monitor ICE connection state changes
+    sender.addEventListener('iceconnectionstatechange', () => {
+      const state = sender.iceConnectionState
+      connectionStateRef.current = state
+      setDebug(`ICE connection state: ${state}`)
+      
+      if (state === 'disconnected' || state === 'failed') {
+        setConnectionHealth("degraded" as any)
+        setDebug(`WebRTC connection lost: ${state}. Attempting to reconnect...`)
+        
+        // Clear any existing reconnect timeout
+        clearReconnectTimeout()
+        
+        // Schedule reconnection attempt
+        reconnectTimeoutRef.current = setTimeout(() => {
+          if (connectionStateRef.current === 'disconnected' || connectionStateRef.current === 'failed') {
+            safeRestart()
+          }
+        }, 2000) // Wait 2 seconds before attempting reconnection
+      } else if (state === 'connected' || state === 'completed') {
+        setConnectionHealth("ok" as any)
+        clearReconnectTimeout()
+        setDebug(`WebRTC connection restored: ${state}`)
+      }
+    })
+
+    // Monitor connection state changes
+    sender.addEventListener('connectionstatechange', () => {
+      const state = sender.connectionState
+      setDebug(`Connection state: ${state}`)
+      
+      if (state === 'failed') {
+        setConnectionHealth("offline" as any)
+        setDebug("Connection failed. Attempting to reconnect...")
+        clearReconnectTimeout()
+        reconnectTimeoutRef.current = setTimeout(() => safeRestart(), 1000)
+      }
+    })
   }
 
   async function checkAlive() {
@@ -91,30 +164,12 @@ export function StartStop() {
         if (!res.ok) {
           const payload = await res.json().catch(() => ({} as any))
           const message = (payload && (payload.error || payload.message)) || res.statusText
-          // Check for session unauthorized (400112) - stop heartbeat loop
-          if (payload && payload.code === 400112) {
-            unauthorizedRef.current = true
-            setConnectionHealth("offline" as any)
-            setLastError("session unauthorized")
-            setDebug("Session expired (400112). Please restart the avatar.")
-            clearHeartbeat()
-            return
-          }
           throw new Error(String(message || "keepalive failed"))
         }
       }
       try {
         await once()
       } catch (err) {
-        // If unauthorized during retry, stop heartbeat
-        if (err && String(err.message).includes("400112")) {
-          unauthorizedRef.current = true
-          setConnectionHealth("offline" as any)
-          setLastError("session unauthorized")
-          setDebug("Session expired (400112). Please restart the avatar.")
-          clearHeartbeat()
-          return
-        }
         await new Promise((r) => setTimeout(r, 300))
         await once()
       }
@@ -134,11 +189,7 @@ export function StartStop() {
       if (fails >= 2) setConnectionHealth("degraded" as any)
       if (fails >= 4) {
         setConnectionHealth("offline" as any)
-        if (!unauthorizedRef.current) {
-          await safeRestart()
-        } else {
-          setDebug("Unauthorized. Check HEYGEN_API_KEY and refresh.")
-        }
+        await safeRestart()
       }
     }
   }
@@ -159,15 +210,7 @@ export function StartStop() {
     if (stream && mediaStreamRef?.current) {
       mediaStreamRef.current.srcObject = stream
       mediaStreamRef.current.onloadedmetadata = () => {
-        try {
-          mediaStreamRef.current!.muted = true
-          const p = mediaStreamRef.current!.play()
-          if (p && typeof (p as any).catch === "function") {
-            ;(p as any).catch(() => {
-              // Ignore autoplay policy errors until user interacts
-            })
-          }
-        } catch {}
+        mediaStreamRef.current!.play()
         setDebug("Playing")
         setMediaStreamActive(true)
 
@@ -177,15 +220,11 @@ export function StartStop() {
         console.log("Video dimensions:", videoWidth, videoHeight)
       }
     }
-    // expose restart function globally
-    setRestartFn(safeRestart)
     return () => {
       clearHeartbeat()
-      setRestartFn(null)
+      clearReconnectTimeout()
     }
   }, [mediaStreamRef, stream])
-
-  // Avoid calling remote stop during unload to prevent 401s on reload. Local cleanup happens via unmount.
 
   const isStartingRef = useRef(false)
 
@@ -220,31 +259,16 @@ export function StartStop() {
 
     isStartingRef.current = true
 
-    // reset unauthorized guard before attempting
-    unauthorizedRef.current = false
-
     const response = await fetch("/api/grab", {
       method: "POST",
       headers: {
         "content-type": "application/json",
       },
     })
-    let data: any = null
-    try { data = await response.json() } catch {}
     if (!response.ok) {
-      const msg = (data && (data.error || data?.data?.message)) || response.statusText || "Unauthorized"
-      const lower = String(msg).toLowerCase()
-      setDebug(`Token fetch failed: ${msg}`)
-      if (lower.includes("unauthorized") || response.status === 401) {
-        unauthorizedRef.current = true
-        setConnectionHealth("offline" as any)
-        setLastError("unauthorized")
-        // do not proceed or trigger restarts automatically
-        isStartingRef.current = false
-        return
-      }
-      throw new Error(msg)
+      throw new Error(`Failed to fetch: ${response.statusText}`)
     }
+    const data = await response.json()
 
     try {
       avatarRef.current = new StreamingAvatarApi(
@@ -294,25 +318,21 @@ export function StartStop() {
       setSessionData(res!)
       setStream(avatarRef.current.mediaStream)
       setMediaStreamActive(true)
-      unauthorizedRef.current = false
-      // attach track-end/mute reconnect
+      
+      // Setup WebRTC connection monitoring
+      setTimeout(() => setupWebRTCConnectionMonitoring(), 1000)
+      
+      // attach track-end reconnect
       try {
         const ms = avatarRef.current.mediaStream
-        const attach = (t: MediaStreamTrack) => {
-          t.onended = () => safeRestart()
-          t.onmute = () => {
-            // if muted for more than 2s, consider connection broken
-            const tm = setTimeout(() => safeRestart(), 2000)
-            t.onunmute = () => clearTimeout(tm)
-          }
-        }
-        ms?.getVideoTracks()?.forEach(attach)
-        ms?.getAudioTracks()?.forEach(attach)
+        ms?.getVideoTracks()?.forEach((t) => (t.onended = () => safeRestart()))
+        ms?.getAudioTracks()?.forEach((t) => (t.onended = () => safeRestart()))
       } catch {}
-      // start heartbeat
+      
+      // start heartbeat (more frequent to catch issues earlier)
       clearHeartbeat()
       backoffRef.current = 1000
-      heartbeatTimerRef.current = setInterval(checkAlive, 15000)
+      heartbeatTimerRef.current = setInterval(checkAlive, 15000) // Reduced from 25s to 15s
     } catch (e: any) {
       const message = e?.message || "Failed to start avatar session"
       setDebug(message)
@@ -340,39 +360,17 @@ export function StartStop() {
 
     setMediaStreamActive(false)
     clearHeartbeat()
-
-    // Preflight: if keep-alive fails/unauthorized, skip remote stop to avoid 401 noise
-    let canCallRemoteStop = true
+    clearReconnectTimeout()
     try {
-      const res = await fetch("/api/keepalive", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ session_id: sessionData.sessionId }),
-      })
-      const payload = await res.json().catch(() => ({} as any))
-      if (!res.ok || (payload && payload.code === 400112)) {
-        canCallRemoteStop = false
-      }
-    } catch {
-      canCallRemoteStop = false
-    }
-
-    try {
-      if (canCallRemoteStop) {
-        await avatarRef.current.stopAvatar(
-          { stopSessionRequest: { sessionId: sessionData.sessionId } },
-          setDebug
-        )
-      }
+      await avatarRef.current.stopAvatar(
+        { stopSessionRequest: { sessionId: sessionData.sessionId } },
+        setDebug
+      )
     } catch (e: any) {
       // Some SDK versions throw if internal transport is already closed
       const message = e?.message || "Failed to stop avatar"
-      const m = message.toLowerCase()
-      if (m.includes("close")) {
+      if (message.toLowerCase().includes("close")) {
         setDebug("Session already closed")
-      } else if (m.includes("unauthorized") || m.includes("401")) {
-        // Ignore unauthorized on shutdown (e.g., during reload)
-        setDebug("Session ended")
       } else {
         setDebug(message)
       }

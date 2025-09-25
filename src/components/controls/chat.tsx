@@ -21,7 +21,6 @@ import {
   mediaStreamActiveAtom,
   providerModelAtom,
   sessionDataAtom,
-  restartFnAtom,
 } from "@/lib/atoms"
 
 import { Button } from "../ui/button"
@@ -37,7 +36,6 @@ export function Chat() {
   const [sessionData] = useAtom(sessionDataAtom)
   const [mediaStreamActive] = useAtom(mediaStreamActiveAtom)
   const [, setDebug] = useAtom(debugAtom)
-  const [restartFn] = useAtom(restartFnAtom)
   const [chatMode, setChatMode] = useAtom(chatModeAtom)
   const [providerModel, setProviderModel] = useAtom(providerModelAtom)
   const [isLoadingChat, setIsLoadingChat] = useState(false)
@@ -311,20 +309,7 @@ export function Chat() {
     } catch (e: any) {
       console.error("Speak error:", e)
       if (e.message?.includes("invalid session state: closed")) {
-        // Try one fast auto-restart and resend once
-        if (restartFn) {
-          try {
-            await restartFn()
-            const ok2 = await keepAlive(sessionData.sessionId)
-            if (ok2 && avatar.current) {
-              await avatar.current.speak({
-                taskRequest: { text: String(input).trim(), sessionId: sessionData.sessionId },
-              })
-              return
-            }
-          } catch {}
-        }
-        setDebug("Session expired. Reconnect and try again.")
+        setDebug("Session expired. Please restart the avatar.")
       } else {
         setDebug(e.message || "Failed to speak")
       }
@@ -377,11 +362,9 @@ export function Chat() {
           processedSentences.current.add(trimmedSentence)
 
           if (!avatar.current) return
-          // keep-alive before auto speak; if closed, attempt one restart and retry once
-          keepAlive(sessionData.sessionId)
-            .catch(() => {})
-            .finally(() => {
-              avatar.current
+          // keep-alive before auto speak
+          keepAlive(sessionData.sessionId).finally(() => {})
+          avatar.current
             .speak({
               taskRequest: {
                 text: trimmedSentence,
@@ -390,23 +373,8 @@ export function Chat() {
             })
             .catch((e: any) => {
               if (e?.message?.includes("invalid session state: closed")) {
-                ;(async () => {
-                  try {
-                    if (restartFn) await restartFn()
-                    const ok = await keepAlive(sessionData.sessionId)
-                    if (ok && avatar.current) {
-                      await avatar.current.speak({
-                        taskRequest: { text: trimmedSentence, sessionId: sessionData.sessionId },
-                      })
-                    } else {
-                      setDebug("Session expired during auto-speak. Please restart the avatar.")
-                    }
-                  } catch {
-                    setDebug("Session expired during auto-speak. Please restart the avatar.")
-                  }
-                })()
+                setDebug("Session expired during auto-speak. Please restart the avatar.")
               }
-            })
             })
         }
       })
@@ -443,14 +411,6 @@ export function Chat() {
     } catch (e: any) {
       console.error("Interrupt error:", e)
       if (e.message?.includes("invalid session state: closed")) {
-        try {
-          if (restartFn) await restartFn()
-          const ok = await keepAlive(sessionData.sessionId)
-          if (ok && avatar.current) {
-            await avatar.current.interrupt({ interruptRequest: { sessionId: sessionData.sessionId } })
-            return
-          }
-        } catch {}
         setDebug("Session expired. Please restart the avatar.")
       } else {
         setDebug(e.message || "Failed to interrupt")
