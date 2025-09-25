@@ -56,6 +56,30 @@ export function Chat() {
     )
   }
 
+  // Keep-alive function to prevent session expiration
+  async function keepAlive(): Promise<boolean> {
+    if (!sessionData?.sessionId) return false
+    
+    try {
+      const response = await fetch("/api/keepalive", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ session_id: sessionData.sessionId }),
+      })
+      
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}))
+        setDebug(`Keep-alive failed: ${error.error || response.statusText}`)
+        return false
+      }
+      
+      return true
+    } catch (e: any) {
+      setDebug(`Keep-alive error: ${e.message}`)
+      return false
+    }
+  }
+
   function isRateLimited(limit = 3, windowMs = 5000): boolean {
     const now = Date.now()
     actionTimesRef.current = actionTimesRef.current.filter((t) => now - t <= windowMs)
@@ -269,6 +293,9 @@ export function Chat() {
     }
 
     try {
+      // Keep session alive before speaking
+      await keepAlive()
+      
       // mark speaking (best-effort)
       ;(avatar.current as any)._isSpeaking = true
       await avatar.current.speak({
@@ -329,19 +356,23 @@ export function Chat() {
         ) {
           processedSentences.current.add(trimmedSentence)
 
-          if (!avatar.current) return
-          avatar.current
-            .speak({
-              taskRequest: {
-                text: trimmedSentence,
-                sessionId: sessionData!.sessionId,
-              },
-            })
-            .catch((e: any) => {
-              if (e?.message?.includes("invalid session state: closed")) {
-                setDebug("Session expired during auto-speak. Please restart the avatar.")
-              }
-            })
+              if (!avatar.current) return
+              
+              // Keep session alive before auto-speak
+              keepAlive().then(() => {
+                avatar.current
+                  .speak({
+                    taskRequest: {
+                      text: trimmedSentence,
+                      sessionId: sessionData!.sessionId,
+                    },
+                  })
+                  .catch((e: any) => {
+                    if (e?.message?.includes("invalid session state: closed")) {
+                      setDebug("Session expired during auto-speak. Please restart the avatar.")
+                    }
+                  })
+              })
         }
       })
 
@@ -360,10 +391,13 @@ export function Chat() {
     }
 
     stop()
-    
+
     try {
-      await avatar.current!.interrupt({ 
-        interruptRequest: { sessionId: sessionData!.sessionId } 
+      // Keep session alive before interrupting
+      await keepAlive()
+      
+      await avatar.current!.interrupt({
+        interruptRequest: { sessionId: sessionData!.sessionId }
       })
     } catch (e: any) {
       console.error("Interrupt error:", e)

@@ -52,6 +52,7 @@ export function StartStop() {
   }, [setAvatar])
 
   const isStartingRef = useRef(false)
+  const keepAliveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Simple session validation
   function isSessionValid(): boolean {
@@ -62,8 +63,52 @@ export function StartStop() {
     )
   }
 
+  // Keep-alive function to prevent session expiration
+  async function keepAlive() {
+    if (!sessionData?.sessionId) return false
+    
+    try {
+      const response = await fetch("/api/keepalive", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ session_id: sessionData.sessionId }),
+      })
+      
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}))
+        setDebug(`Keep-alive failed: ${error.error || response.statusText}`)
+        return false
+      }
+      
+      return true
+    } catch (e: any) {
+      setDebug(`Keep-alive error: ${e.message}`)
+      return false
+    }
+  }
+
+  // Start keep-alive interval
+  function startKeepAlive() {
+    clearKeepAlive()
+    keepAliveIntervalRef.current = setInterval(async () => {
+      const success = await keepAlive()
+      if (!success) {
+        setDebug("Keep-alive failed, session may expire")
+      }
+    }, 10000) // Call every 10 seconds
+  }
+
+  // Clear keep-alive interval
+  function clearKeepAlive() {
+    if (keepAliveIntervalRef.current) {
+      clearInterval(keepAliveIntervalRef.current)
+      keepAliveIntervalRef.current = null
+    }
+  }
+
   // Clean session state
   function clearSession() {
+    clearKeepAlive()
     setIsSessionActive(false)
     setSessionData(undefined)
     setStream(undefined)
@@ -148,6 +193,9 @@ export function StartStop() {
       setStream(avatarRef.current.mediaStream)
       setIsSessionActive(true)
       setDebug("Session started successfully")
+      
+      // Start keep-alive to prevent session expiration
+      startKeepAlive()
 
     } catch (e: any) {
       const message = e?.message || "Failed to start avatar session"
