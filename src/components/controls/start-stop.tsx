@@ -53,6 +53,7 @@ export function StartStop() {
 
   const isStartingRef = useRef(false)
   const keepAliveWorkerRef = useRef<Worker | null>(null)
+  const keepAliveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Enhanced session validation
   function isSessionValid(): boolean {
@@ -134,7 +135,9 @@ export function StartStop() {
           async sendKeepAlive() {
             if (!this.sessionId) return false
             try {
-              const response = await fetch('/api/keepalive', {
+              // Use absolute URL for Web Worker context
+              const absoluteUrl = new URL('/api/keepalive', self.location.origin).href
+              const response = await fetch(absoluteUrl, {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ session_id: this.sessionId }),
@@ -204,28 +207,98 @@ export function StartStop() {
     }
   }
 
-  // Start keep-alive using Web Worker
+  // Start keep-alive using Web Worker with fallback
   function startKeepAlive() {
     clearKeepAlive()
     
-    const worker = initializeKeepAliveWorker()
-    if (!worker || !sessionData?.sessionId) {
-      setDebug("Failed to start keep-alive worker")
+    if (!sessionData?.sessionId) {
+      setDebug("No session ID for keep-alive")
       return
     }
 
-    worker.postMessage({
-      type: 'START_KEEPALIVE',
-      data: { sessionId: sessionData.sessionId, interval: 5000 }
-    })
+    try {
+      const worker = initializeKeepAliveWorker()
+      if (worker) {
+        worker.postMessage({
+          type: 'START_KEEPALIVE',
+          data: { sessionId: sessionData.sessionId, interval: 5000 }
+        })
+        setDebug("Keep-alive worker started")
+      } else {
+        // Fallback to main thread keep-alive
+        setDebug("Using fallback keep-alive on main thread")
+        startFallbackKeepAlive()
+      }
+    } catch (error: any) {
+      setDebug(`Web Worker failed, using fallback: ${error.message}`)
+      startFallbackKeepAlive()
+    }
   }
 
-  // Clear keep-alive worker
+  // Fallback keep-alive on main thread
+  function startFallbackKeepAlive() {
+    if (!sessionData?.sessionId) return
+
+    // Immediate keep-alive call
+    sendKeepAliveRequest().then(success => {
+      if (!success) {
+        setDebug("Initial fallback keep-alive failed")
+      }
+    })
+
+    // Set up interval for regular keep-alive
+    keepAliveIntervalRef.current = setInterval(async () => {
+      const success = await sendKeepAliveRequest()
+      if (!success) {
+        setDebug("Fallback keep-alive failed, session may expire")
+      }
+    }, 5000)
+  }
+
+  // Send keep-alive request
+  async function sendKeepAliveRequest(): Promise<boolean> {
+    if (!sessionData?.sessionId) return false
+
+    try {
+      const response = await fetch("/api/keepalive", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ session_id: sessionData.sessionId }),
+      })
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}))
+        const errorMsg = error.error || response.statusText || "Unknown error"
+        setDebug(`Keep-alive failed (${response.status}): ${errorMsg}`)
+
+        if (errorMsg.includes("closed") || response.status === 400) {
+          setDebug("Session appears to be closed, marking as inactive")
+          setIsSessionActive(false)
+        }
+
+        return false
+      }
+
+      return true
+    } catch (e: any) {
+      setDebug(`Keep-alive error: ${e.message}`)
+      return false
+    }
+  }
+
+  // Clear keep-alive worker and interval
   function clearKeepAlive() {
+    // Clear Web Worker
     if (keepAliveWorkerRef.current) {
       keepAliveWorkerRef.current.postMessage({ type: 'STOP_KEEPALIVE' })
       keepAliveWorkerRef.current.terminate()
       keepAliveWorkerRef.current = null
+    }
+    
+    // Clear fallback interval
+    if (keepAliveIntervalRef.current) {
+      clearInterval(keepAliveIntervalRef.current)
+      keepAliveIntervalRef.current = null
     }
   }
 
@@ -309,7 +382,7 @@ export function StartStop() {
 
     // Clean up any existing session
     if (avatarRef.current && sessionData?.sessionId) {
-      try {
+    try {
         await avatarRef.current.stopAvatar(
           { stopSessionRequest: { sessionId: sessionData.sessionId } },
           setDebug
@@ -331,9 +404,15 @@ export function StartStop() {
         },
       })
       if (!response.ok) {
-        throw new Error(`Failed to fetch: ${response.statusText}`)
+        throw new Error(`Failed to fetch token: ${response.statusText}`)
       }
       const data = await response.json()
+      
+      // Log token info for debugging
+      setDebug(`Token obtained: ${data.data?.data?.token ? 'Success' : 'Failed'}`)
+      if (data.data?.data?.token) {
+        setDebug(`Token length: ${data.data.data.token.length} characters`)
+      }
 
       // Create avatar API instance
       avatarRef.current = new StreamingAvatarApi(
@@ -343,10 +422,10 @@ export function StartStop() {
       )
       
       // Start session with optimized configuration
-      const payload: any = {
-        newSessionRequest: {
+        const payload: any = {
+          newSessionRequest: {
           quality: quality,
-          avatarName: avatarId,
+            avatarName: avatarId,
           activity_idle_timeout: 120, // 2 minutes - very conservative for testing
           // Add additional session configuration
           enable_avatar_audio: true,
@@ -413,7 +492,7 @@ export function StartStop() {
       setDebug("Session stopped successfully")
     } catch (e: any) {
       const message = e?.message || "Failed to stop avatar"
-      setDebug(message)
+        setDebug(message)
       setLastError(message)
     } finally {
       clearSession()
