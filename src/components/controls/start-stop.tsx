@@ -50,7 +50,10 @@ export function StartStop() {
     (stream: MediaStream | undefined) => void,
   ]
   const [, setDebug] = useAtom(debugAtom)
-  const [, setKeepAliveFunction] = useAtom(keepAliveFunctionAtom)
+  const [, setKeepAliveFunction] = useAtom(keepAliveFunctionAtom) as [
+    (() => Promise<boolean>) | null,
+    (value: (() => Promise<boolean>) | null) => void,
+  ]
 
   const [avatar, setAvatar] = useAtom(avatarAtom) as [
     { current: StreamingAvatarApi | undefined },
@@ -347,7 +350,7 @@ export function StartStop() {
       setMediaStreamActive(true)
       
       // Set keep-alive function for other components to use
-      setKeepAliveFunction(keepAliveBeforeAction)
+      setKeepAliveFunction(() => keepAliveBeforeAction())
       
       // Setup WebRTC connection monitoring
       setTimeout(() => setupWebRTCConnectionMonitoring(), 1000)
