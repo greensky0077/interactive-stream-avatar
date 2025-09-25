@@ -66,6 +66,7 @@ export function StartStop() {
 
   const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const backoffRef = useRef<number>(1000)
+  const unauthorizedRef = useRef<boolean>(false)
 
   function clearHeartbeat() {
     if (heartbeatTimerRef.current) {
@@ -90,12 +91,30 @@ export function StartStop() {
         if (!res.ok) {
           const payload = await res.json().catch(() => ({} as any))
           const message = (payload && (payload.error || payload.message)) || res.statusText
+          // Check for session unauthorized (400112) - stop heartbeat loop
+          if (payload && payload.code === 400112) {
+            unauthorizedRef.current = true
+            setConnectionHealth("offline" as any)
+            setLastError("session unauthorized")
+            setDebug("Session expired (400112). Please restart the avatar.")
+            clearHeartbeat()
+            return
+          }
           throw new Error(String(message || "keepalive failed"))
         }
       }
       try {
         await once()
       } catch (err) {
+        // If unauthorized during retry, stop heartbeat
+        if (err && String(err.message).includes("400112")) {
+          unauthorizedRef.current = true
+          setConnectionHealth("offline" as any)
+          setLastError("session unauthorized")
+          setDebug("Session expired (400112). Please restart the avatar.")
+          clearHeartbeat()
+          return
+        }
         await new Promise((r) => setTimeout(r, 300))
         await once()
       }
@@ -115,7 +134,11 @@ export function StartStop() {
       if (fails >= 2) setConnectionHealth("degraded" as any)
       if (fails >= 4) {
         setConnectionHealth("offline" as any)
-        await safeRestart()
+        if (!unauthorizedRef.current) {
+          await safeRestart()
+        } else {
+          setDebug("Unauthorized. Check HEYGEN_API_KEY and refresh.")
+        }
       }
     }
   }
@@ -197,6 +220,9 @@ export function StartStop() {
 
     isStartingRef.current = true
 
+    // reset unauthorized guard before attempting
+    unauthorizedRef.current = false
+
     const response = await fetch("/api/grab", {
       method: "POST",
       headers: {
@@ -207,7 +233,16 @@ export function StartStop() {
     try { data = await response.json() } catch {}
     if (!response.ok) {
       const msg = (data && (data.error || data?.data?.message)) || response.statusText || "Unauthorized"
+      const lower = String(msg).toLowerCase()
       setDebug(`Token fetch failed: ${msg}`)
+      if (lower.includes("unauthorized") || response.status === 401) {
+        unauthorizedRef.current = true
+        setConnectionHealth("offline" as any)
+        setLastError("unauthorized")
+        // do not proceed or trigger restarts automatically
+        isStartingRef.current = false
+        return
+      }
       throw new Error(msg)
     }
 
@@ -259,6 +294,7 @@ export function StartStop() {
       setSessionData(res!)
       setStream(avatarRef.current.mediaStream)
       setMediaStreamActive(true)
+      unauthorizedRef.current = false
       // attach track-end/mute reconnect
       try {
         const ms = avatarRef.current.mediaStream
@@ -313,7 +349,8 @@ export function StartStop() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ session_id: sessionData.sessionId }),
       })
-      if (!res.ok) {
+      const payload = await res.json().catch(() => ({} as any))
+      if (!res.ok || (payload && payload.code === 400112)) {
         canCallRemoteStop = false
       }
     } catch {
