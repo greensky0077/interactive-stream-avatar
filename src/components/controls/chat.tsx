@@ -21,6 +21,7 @@ import {
   mediaStreamActiveAtom,
   providerModelAtom,
   sessionDataAtom,
+  keepAliveFunctionAtom,
 } from "@/lib/atoms"
 
 import { Button } from "../ui/button"
@@ -38,6 +39,7 @@ export function Chat() {
   const [, setDebug] = useAtom(debugAtom)
   const [chatMode, setChatMode] = useAtom(chatModeAtom)
   const [providerModel, setProviderModel] = useAtom(providerModelAtom)
+  const [keepAliveFunction] = useAtom(keepAliveFunctionAtom)
   const [isLoadingChat, setIsLoadingChat] = useState(false)
   const [chatError, setChatError] = useState<string | null>(null)
   const [showFallback, setShowFallback] = useState(false)
@@ -47,32 +49,12 @@ export function Chat() {
   const vadEnabledRef = useRef<boolean>(false)
   const vadSilenceTimerRef = useRef<any>(null)
   
+  // Use shared keep-alive function from start-stop component
   async function keepAlive(sessionId: string): Promise<boolean> {
-    async function once(): Promise<{ ok: boolean; msg?: string }> {
-      try {
-        const res = await fetch("/api/keepalive", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ session_id: sessionId }),
-        })
-        if (!res.ok) {
-          const payload = await res.json().catch(() => ({} as any))
-          const msg = (payload && (payload.error || payload.message)) || res.statusText
-          return { ok: false, msg: String(msg || "keepalive failed") }
-        }
-        return { ok: true }
-      } catch (e: any) {
-        return { ok: false, msg: e?.message || "keepalive error" }
-      }
+    if (keepAliveFunction) {
+      return await keepAliveFunction()
     }
-
-    const first = await once()
-    if (first.ok) return true
-    // brief retry
-    await new Promise((r) => setTimeout(r, 300))
-    const second = await once()
-    if (!second.ok) setDebug(`Keep-alive failed: ${second.msg || first.msg}`)
-    return Boolean(second.ok)
+    return false
   }
 
   function isRateLimited(limit = 3, windowMs = 5000): boolean {

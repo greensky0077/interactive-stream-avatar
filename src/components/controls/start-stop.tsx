@@ -23,6 +23,7 @@ import {
   sessionDataAtom,
   streamAtom,
   voiceIdAtom,
+  keepAliveFunctionAtom,
 } from "@/lib/atoms"
 
 import { Button } from "../ui/button"
@@ -49,6 +50,7 @@ export function StartStop() {
     (stream: MediaStream | undefined) => void,
   ]
   const [, setDebug] = useAtom(debugAtom)
+  const [, setKeepAliveFunction] = useAtom(keepAliveFunctionAtom)
 
   const [avatar, setAvatar] = useAtom(avatarAtom) as [
     { current: StreamingAvatarApi | undefined },
@@ -194,6 +196,30 @@ export function StartStop() {
     }
   }
 
+  // Helper function to call keep-alive before user interactions
+  async function keepAliveBeforeAction() {
+    const sid = sessionData?.sessionId
+    if (!sid) return false
+
+    try {
+      const res = await fetch("/api/keepalive", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ session_id: sid }),
+      })
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({} as any))
+        const message = (payload && (payload.error || payload.message)) || res.statusText
+        setDebug(`Keep-alive failed: ${message}`)
+        return false
+      }
+      return true
+    } catch (e: any) {
+      setDebug(`Keep-alive error: ${e?.message || "unknown"}`)
+      return false
+    }
+  }
+
   async function safeRestart() {
     if (isStartingRef.current) return
     setDebug("Reconnecting...")
@@ -283,6 +309,7 @@ export function StartStop() {
           newSessionRequest: {
             quality: quality, // low, medium, high
             avatarName: avatarId,
+            activity_idle_timeout: 1800, // 30 minutes (max 3599s, default 120s)
           },
         }
         if (voice) payload.newSessionRequest.voice = { voiceId: voice }
@@ -319,6 +346,9 @@ export function StartStop() {
       setStream(avatarRef.current.mediaStream)
       setMediaStreamActive(true)
       
+      // Set keep-alive function for other components to use
+      setKeepAliveFunction(keepAliveBeforeAction)
+      
       // Setup WebRTC connection monitoring
       setTimeout(() => setupWebRTCConnectionMonitoring(), 1000)
       
@@ -329,10 +359,10 @@ export function StartStop() {
         ms?.getAudioTracks()?.forEach((t) => (t.onended = () => safeRestart()))
       } catch {}
       
-      // start heartbeat (more frequent to catch issues earlier)
+      // start heartbeat (call keep-alive every 10 minutes to prevent session timeout)
       clearHeartbeat()
       backoffRef.current = 1000
-      heartbeatTimerRef.current = setInterval(checkAlive, 15000) // Reduced from 25s to 15s
+      heartbeatTimerRef.current = setInterval(checkAlive, 600000) // 10 minutes (600s) - well before 30min timeout
     } catch (e: any) {
       const message = e?.message || "Failed to start avatar session"
       setDebug(message)
