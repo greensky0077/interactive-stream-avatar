@@ -162,21 +162,7 @@ export function StartStop() {
     }
   }, [mediaStreamRef, stream])
 
-  // Try to gracefully stop on page unload/reload; swallow Unauthorized
-  useEffect(() => {
-    const onBeforeUnload = async () => {
-      try {
-        if (avatarRef.current && sessionData?.sessionId) {
-          await avatarRef.current.stopAvatar(
-            { stopSessionRequest: { sessionId: sessionData.sessionId } },
-            () => {}
-          )
-        }
-      } catch {}
-    }
-    window.addEventListener("beforeunload", onBeforeUnload)
-    return () => window.removeEventListener("beforeunload", onBeforeUnload)
-  }, [sessionData?.sessionId])
+  // Avoid calling remote stop during unload to prevent 401s on reload. Local cleanup happens via unmount.
 
   const isStartingRef = useRef(false)
 
