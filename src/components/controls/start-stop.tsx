@@ -203,10 +203,13 @@ export function StartStop() {
         "content-type": "application/json",
       },
     })
+    let data: any = null
+    try { data = await response.json() } catch {}
     if (!response.ok) {
-      throw new Error(`Failed to fetch: ${response.statusText}`)
+      const msg = (data && (data.error || data?.data?.message)) || response.statusText || "Unauthorized"
+      setDebug(`Token fetch failed: ${msg}`)
+      throw new Error(msg)
     }
-    const data = await response.json()
 
     try {
       avatarRef.current = new StreamingAvatarApi(
