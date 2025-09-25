@@ -34,7 +34,7 @@ export function Chat() {
   const [avatar] = useAtom(avatarAtom)
   const [inputText, setInputText] = useAtom(inputTextAtom)
   const [sessionData] = useAtom(sessionDataAtom)
-  const [isSessionActive] = useAtom(isSessionActiveAtom)
+  const [isSessionActive, setIsSessionActive] = useAtom(isSessionActiveAtom)
   const [, setDebug] = useAtom(debugAtom)
   const [chatMode, setChatMode] = useAtom(chatModeAtom)
   const [providerModel, setProviderModel] = useAtom(providerModelAtom)
@@ -58,7 +58,10 @@ export function Chat() {
 
   // Keep-alive function to prevent session expiration
   async function keepAlive(): Promise<boolean> {
-    if (!sessionData?.sessionId) return false
+    if (!sessionData?.sessionId) {
+      setDebug("Keep-alive skipped: No session ID")
+      return false
+    }
     
     try {
       const response = await fetch("/api/keepalive", {
@@ -69,7 +72,15 @@ export function Chat() {
       
       if (!response.ok) {
         const error = await response.json().catch(() => ({}))
-        setDebug(`Keep-alive failed: ${error.error || response.statusText}`)
+        const errorMsg = error.error || response.statusText || "Unknown error"
+        setDebug(`Keep-alive failed (${response.status}): ${errorMsg}`)
+        
+        // If session is closed, mark as inactive
+        if (errorMsg.includes("closed") || response.status === 400) {
+          setDebug("Session appears to be closed, marking as inactive")
+          setIsSessionActive(false)
+        }
+        
         return false
       }
       

@@ -54,18 +54,35 @@ export function StartStop() {
   const isStartingRef = useRef(false)
   const keepAliveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Simple session validation
+  // Enhanced session validation
   function isSessionValid(): boolean {
-    return Boolean(
-      isSessionActive && 
-      sessionData?.sessionId && 
-      avatarRef.current?.mediaStream?.active
-    )
+    const hasSessionData = Boolean(sessionData?.sessionId)
+    const hasActiveStream = Boolean(avatarRef.current?.mediaStream?.active)
+    const isActive = Boolean(isSessionActive)
+    
+    // Log validation details for debugging
+    if (!hasSessionData) {
+      setDebug("Session validation failed: No session data")
+      return false
+    }
+    if (!hasActiveStream) {
+      setDebug("Session validation failed: Media stream not active")
+      return false
+    }
+    if (!isActive) {
+      setDebug("Session validation failed: Session not marked as active")
+      return false
+    }
+    
+    return true
   }
 
   // Keep-alive function to prevent session expiration
   async function keepAlive() {
-    if (!sessionData?.sessionId) return false
+    if (!sessionData?.sessionId) {
+      setDebug("Keep-alive skipped: No session ID")
+      return false
+    }
     
     try {
       const response = await fetch("/api/keepalive", {
@@ -76,8 +93,23 @@ export function StartStop() {
       
       if (!response.ok) {
         const error = await response.json().catch(() => ({}))
-        setDebug(`Keep-alive failed: ${error.error || response.statusText}`)
+        const errorMsg = error.error || response.statusText || "Unknown error"
+        setDebug(`Keep-alive failed (${response.status}): ${errorMsg}`)
+        
+        // If session is closed, mark as inactive
+        if (errorMsg.includes("closed") || response.status === 400) {
+          setDebug("Session appears to be closed, marking as inactive")
+          setIsSessionActive(false)
+        }
+        
         return false
+      }
+      
+      // Success - log occasionally to avoid spam
+      const now = Date.now()
+      if (!(window as any).lastKeepAliveLog || now - (window as any).lastKeepAliveLog > 30000) {
+        setDebug("Keep-alive successful")
+        ;(window as any).lastKeepAliveLog = now
       }
       
       return true
@@ -90,12 +122,27 @@ export function StartStop() {
   // Start keep-alive interval
   function startKeepAlive() {
     clearKeepAlive()
+    
+    // Immediate keep-alive call
+    keepAlive().then(success => {
+      if (!success) {
+        setDebug("Initial keep-alive failed")
+      }
+    })
+    
+    // Then set up interval for regular keep-alive
     keepAliveIntervalRef.current = setInterval(async () => {
       const success = await keepAlive()
       if (!success) {
         setDebug("Keep-alive failed, session may expire")
+        // Try to restart session if keep-alive consistently fails
+        setTimeout(() => {
+          if (!isSessionValid()) {
+            setDebug("Session appears expired, please restart")
+          }
+        }, 2000)
       }
-    }, 10000) // Call every 10 seconds
+    }, 5000) // Call every 5 seconds for faster response
   }
 
   // Clear keep-alive interval
@@ -182,7 +229,7 @@ export function StartStop() {
         newSessionRequest: {
           quality: quality,
           avatarName: avatarId,
-          activity_idle_timeout: 1800, // 30 minutes
+          activity_idle_timeout: 300, // 5 minutes - more conservative
         },
       }
 
