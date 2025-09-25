@@ -56,7 +56,7 @@ export function Chat() {
     )
   }
 
-  // Keep-alive function to prevent session expiration
+  // Simplified keep-alive function for chat operations
   async function keepAlive(): Promise<boolean> {
     if (!sessionData?.sessionId) {
       setDebug("Keep-alive skipped: No session ID")

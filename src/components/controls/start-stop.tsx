@@ -52,7 +52,7 @@ export function StartStop() {
   }, [setAvatar])
 
   const isStartingRef = useRef(false)
-  const keepAliveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const keepAliveWorkerRef = useRef<Worker | null>(null)
 
   // Enhanced session validation
   function isSessionValid(): boolean {
@@ -77,79 +77,155 @@ export function StartStop() {
     return true
   }
 
-  // Keep-alive function to prevent session expiration
-  async function keepAlive() {
-    if (!sessionData?.sessionId) {
-      setDebug("Keep-alive skipped: No session ID")
-      return false
+  // Initialize Web Worker for keep-alive
+  function initializeKeepAliveWorker() {
+    if (keepAliveWorkerRef.current) {
+      return keepAliveWorkerRef.current
     }
-    
+
     try {
-      const response = await fetch("/api/keepalive", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ session_id: sessionData.sessionId }),
-      })
-      
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}))
-        const errorMsg = error.error || response.statusText || "Unknown error"
-        setDebug(`Keep-alive failed (${response.status}): ${errorMsg}`)
-        
-        // If session is closed, mark as inactive
-        if (errorMsg.includes("closed") || response.status === 400) {
-          setDebug("Session appears to be closed, marking as inactive")
-          setIsSessionActive(false)
+      // Create Web Worker from inline code
+      const workerCode = `
+        class KeepAliveWorker {
+          constructor() {
+            this.intervalId = null
+            this.sessionId = null
+            this.isActive = false
+            self.addEventListener('message', this.handleMessage.bind(this))
+          }
+
+          handleMessage(event) {
+            const { type, data } = event.data
+            switch (type) {
+              case 'START_KEEPALIVE':
+                this.startKeepAlive(data.sessionId, data.interval)
+                break
+              case 'STOP_KEEPALIVE':
+                this.stopKeepAlive()
+                break
+              case 'UPDATE_SESSION':
+                this.sessionId = data.sessionId
+                break
+            }
+          }
+
+          async startKeepAlive(sessionId, interval = 5000) {
+            if (this.isActive) this.stopKeepAlive()
+            this.sessionId = sessionId
+            this.isActive = true
+            await this.sendKeepAlive()
+            this.intervalId = setInterval(async () => {
+              if (this.isActive && this.sessionId) {
+                await this.sendKeepAlive()
+              }
+            }, interval)
+            self.postMessage({ type: 'KEEPALIVE_STARTED', data: { sessionId, interval } })
+          }
+
+          stopKeepAlive() {
+            this.isActive = false
+            if (this.intervalId) {
+              clearInterval(this.intervalId)
+              this.intervalId = null
+            }
+            self.postMessage({ type: 'KEEPALIVE_STOPPED', data: { sessionId: this.sessionId } })
+          }
+
+          async sendKeepAlive() {
+            if (!this.sessionId) return false
+            try {
+              const response = await fetch('/api/keepalive', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ session_id: this.sessionId }),
+              })
+              if (!response.ok) {
+                const error = await response.json().catch(() => ({}))
+                const errorMsg = error.error || response.statusText || 'Unknown error'
+                self.postMessage({
+                  type: 'KEEPALIVE_FAILED',
+                  data: { sessionId: this.sessionId, status: response.status, error: errorMsg }
+                })
+                return false
+              }
+              const now = Date.now()
+              if (!self.lastKeepAliveLog || now - self.lastKeepAliveLog > 30000) {
+                self.postMessage({ type: 'KEEPALIVE_SUCCESS', data: { sessionId: this.sessionId } })
+                self.lastKeepAliveLog = now
+              }
+              return true
+            } catch (error) {
+              self.postMessage({
+                type: 'KEEPALIVE_ERROR',
+                data: { sessionId: this.sessionId, error: error.message }
+              })
+              return false
+            }
+          }
         }
+        new KeepAliveWorker()
+      `
+
+      const blob = new Blob([workerCode], { type: 'application/javascript' })
+      const worker = new Worker(URL.createObjectURL(blob))
+      
+      // Handle worker messages
+      worker.onmessage = (event) => {
+        const { type, data } = event.data
         
-        return false
+        switch (type) {
+          case 'KEEPALIVE_STARTED':
+            setDebug(`Keep-alive worker started for session ${data.sessionId}`)
+            break
+          case 'KEEPALIVE_STOPPED':
+            setDebug(`Keep-alive worker stopped for session ${data.sessionId}`)
+            break
+          case 'KEEPALIVE_SUCCESS':
+            setDebug("Keep-alive successful")
+            break
+          case 'KEEPALIVE_FAILED':
+            setDebug(`Keep-alive failed (${data.status}): ${data.error}`)
+            if (data.error.includes("closed") || data.status === 400) {
+              setDebug("Session appears to be closed, marking as inactive")
+              setIsSessionActive(false)
+            }
+            break
+          case 'KEEPALIVE_ERROR':
+            setDebug(`Keep-alive error: ${data.error}`)
+            break
+        }
       }
-      
-      // Success - log occasionally to avoid spam
-      const now = Date.now()
-      if (!(window as any).lastKeepAliveLog || now - (window as any).lastKeepAliveLog > 30000) {
-        setDebug("Keep-alive successful")
-        ;(window as any).lastKeepAliveLog = now
-      }
-      
-      return true
-    } catch (e: any) {
-      setDebug(`Keep-alive error: ${e.message}`)
-      return false
+
+      keepAliveWorkerRef.current = worker
+      return worker
+    } catch (error: any) {
+      setDebug(`Failed to create keep-alive worker: ${error.message}`)
+      return null
     }
   }
 
-  // Start keep-alive interval
+  // Start keep-alive using Web Worker
   function startKeepAlive() {
     clearKeepAlive()
     
-    // Immediate keep-alive call
-    keepAlive().then(success => {
-      if (!success) {
-        setDebug("Initial keep-alive failed")
-      }
+    const worker = initializeKeepAliveWorker()
+    if (!worker || !sessionData?.sessionId) {
+      setDebug("Failed to start keep-alive worker")
+      return
+    }
+
+    worker.postMessage({
+      type: 'START_KEEPALIVE',
+      data: { sessionId: sessionData.sessionId, interval: 5000 }
     })
-    
-    // Then set up interval for regular keep-alive
-    keepAliveIntervalRef.current = setInterval(async () => {
-      const success = await keepAlive()
-      if (!success) {
-        setDebug("Keep-alive failed, session may expire")
-        // Try to restart session if keep-alive consistently fails
-        setTimeout(() => {
-          if (!isSessionValid()) {
-            setDebug("Session appears expired, please restart")
-          }
-        }, 2000)
-      }
-    }, 5000) // Call every 5 seconds for faster response
   }
 
-  // Clear keep-alive interval
+  // Clear keep-alive worker
   function clearKeepAlive() {
-    if (keepAliveIntervalRef.current) {
-      clearInterval(keepAliveIntervalRef.current)
-      keepAliveIntervalRef.current = null
+    if (keepAliveWorkerRef.current) {
+      keepAliveWorkerRef.current.postMessage({ type: 'STOP_KEEPALIVE' })
+      keepAliveWorkerRef.current.terminate()
+      keepAliveWorkerRef.current = null
     }
   }
 
@@ -175,6 +251,48 @@ export function StartStop() {
         const videoHeight = mediaStreamRef.current!.videoHeight
         console.log("Video dimensions:", videoWidth, videoHeight)
       }
+
+      // Monitor WebRTC connection state
+      const videoElement = mediaStreamRef.current
+      const track = stream.getVideoTracks()[0]
+      
+      if (track) {
+        // Monitor track state changes
+        track.addEventListener('ended', () => {
+          setDebug("Video track ended - session may be expired")
+          setIsSessionActive(false)
+        })
+
+        track.addEventListener('mute', () => {
+          setDebug("Video track muted")
+        })
+
+        track.addEventListener('unmute', () => {
+          setDebug("Video track unmuted")
+        })
+      }
+
+      // Monitor video element events
+      videoElement.addEventListener('error', (e) => {
+        setDebug(`Video error: ${e}`)
+        setIsSessionActive(false)
+      })
+
+      videoElement.addEventListener('stalled', () => {
+        setDebug("Video stalled - connection may be poor")
+      })
+
+      videoElement.addEventListener('waiting', () => {
+        setDebug("Video waiting for data")
+      })
+
+      videoElement.addEventListener('canplay', () => {
+        setDebug("Video can play")
+      })
+
+      videoElement.addEventListener('canplaythrough', () => {
+        setDebug("Video can play through")
+      })
     }
   }, [mediaStreamRef, stream])
 
@@ -224,12 +342,15 @@ export function StartStop() {
         })
       )
       
-      // Start session with timeout configuration
+      // Start session with optimized configuration
       const payload: any = {
         newSessionRequest: {
           quality: quality,
           avatarName: avatarId,
-          activity_idle_timeout: 300, // 5 minutes - more conservative
+          activity_idle_timeout: 120, // 2 minutes - very conservative for testing
+          // Add additional session configuration
+          enable_avatar_audio: true,
+          enable_avatar_video: true,
         },
       }
 
@@ -246,9 +367,31 @@ export function StartStop() {
 
     } catch (e: any) {
       const message = e?.message || "Failed to start avatar session"
-      setDebug(message)
+      setDebug(`Session start failed: ${message}`)
       setLastError(message)
-      clearSession()
+      
+      // Enhanced error handling
+      if (message.includes("invalid session state")) {
+        setDebug("Session state error - clearing and retrying in 2 seconds")
+        clearSession()
+        setTimeout(() => {
+          if (!isSessionValid()) {
+            setDebug("Retrying session start...")
+            startSession()
+          }
+        }, 2000)
+      } else if (message.includes("network") || message.includes("timeout")) {
+        setDebug("Network error - will retry automatically")
+        clearSession()
+        setTimeout(() => {
+          if (!isSessionValid()) {
+            setDebug("Retrying after network error...")
+            startSession()
+          }
+        }, 5000)
+      } else {
+        clearSession()
+      }
     } finally {
       isStartingRef.current = false
     }
