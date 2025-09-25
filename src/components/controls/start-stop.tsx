@@ -136,7 +136,15 @@ export function StartStop() {
     if (stream && mediaStreamRef?.current) {
       mediaStreamRef.current.srcObject = stream
       mediaStreamRef.current.onloadedmetadata = () => {
-        mediaStreamRef.current!.play()
+        try {
+          mediaStreamRef.current!.muted = true
+          const p = mediaStreamRef.current!.play()
+          if (p && typeof (p as any).catch === "function") {
+            ;(p as any).catch(() => {
+              // Ignore autoplay policy errors until user interacts
+            })
+          }
+        } catch {}
         setDebug("Playing")
         setMediaStreamActive(true)
 
@@ -153,6 +161,22 @@ export function StartStop() {
       setRestartFn(null)
     }
   }, [mediaStreamRef, stream])
+
+  // Try to gracefully stop on page unload/reload; swallow Unauthorized
+  useEffect(() => {
+    const onBeforeUnload = async () => {
+      try {
+        if (avatarRef.current && sessionData?.sessionId) {
+          await avatarRef.current.stopAvatar(
+            { stopSessionRequest: { sessionId: sessionData.sessionId } },
+            () => {}
+          )
+        }
+      } catch {}
+    }
+    window.addEventListener("beforeunload", onBeforeUnload)
+    return () => window.removeEventListener("beforeunload", onBeforeUnload)
+  }, [sessionData?.sessionId])
 
   const isStartingRef = useRef(false)
 
@@ -299,8 +323,12 @@ export function StartStop() {
     } catch (e: any) {
       // Some SDK versions throw if internal transport is already closed
       const message = e?.message || "Failed to stop avatar"
-      if (message.toLowerCase().includes("close")) {
+      const m = message.toLowerCase()
+      if (m.includes("close")) {
         setDebug("Session already closed")
+      } else if (m.includes("unauthorized") || m.includes("401")) {
+        // Ignore unauthorized on shutdown (e.g., during reload)
+        setDebug("Session ended")
       } else {
         setDebug(message)
       }
