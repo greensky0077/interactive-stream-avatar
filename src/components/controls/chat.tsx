@@ -46,6 +46,34 @@ export function Chat() {
   const audioStreamRef = useRef<MediaStream | null>(null)
   const vadEnabledRef = useRef<boolean>(false)
   const vadSilenceTimerRef = useRef<any>(null)
+  
+  async function keepAlive(sessionId: string): Promise<boolean> {
+    async function once(): Promise<{ ok: boolean; msg?: string }> {
+      try {
+        const res = await fetch("/api/keepalive", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId }),
+        })
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({} as any))
+          const msg = (payload && (payload.error || payload.message)) || res.statusText
+          return { ok: false, msg: String(msg || "keepalive failed") }
+        }
+        return { ok: true }
+      } catch (e: any) {
+        return { ok: false, msg: e?.message || "keepalive error" }
+      }
+    }
+
+    const first = await once()
+    if (first.ok) return true
+    // brief retry
+    await new Promise((r) => setTimeout(r, 300))
+    const second = await once()
+    if (!second.ok) setDebug(`Keep-alive failed: ${second.msg || first.msg}`)
+    return Boolean(second.ok)
+  }
 
   function isRateLimited(limit = 3, windowMs = 5000): boolean {
     const now = Date.now()
@@ -268,6 +296,11 @@ export function Chat() {
     }
 
     try {
+      // keep session from idling out before action
+      const ok = await keepAlive(sessionData.sessionId)
+      if (!ok) {
+        setDebug("Unable to refresh session. Please try again or restart.")
+      }
       // mark speaking (best-effort)
       ;(avatar.current as any)._isSpeaking = true
       await avatar.current.speak({
@@ -329,6 +362,8 @@ export function Chat() {
           processedSentences.current.add(trimmedSentence)
 
           if (!avatar.current) return
+          // keep-alive before auto speak
+          keepAlive(sessionData.sessionId).finally(() => {})
           avatar.current
             .speak({
               taskRequest: {

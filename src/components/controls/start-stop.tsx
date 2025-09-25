@@ -71,13 +71,37 @@ export function StartStop() {
 
   async function checkAlive() {
     try {
-      const active = Boolean(avatarRef.current?.mediaStream?.active)
-      if (active) {
+      const hasActiveMedia = Boolean(avatarRef.current?.mediaStream?.active)
+      const sid = sessionData?.sessionId
+      if (!sid) throw new Error("no sessionId")
+
+      // Call server keepalive to reset HeyGen idle timer with a brief retry
+      async function once() {
+        const res = await fetch("/api/keepalive", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ session_id: sid }),
+        })
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({} as any))
+          const message = (payload && (payload.error || payload.message)) || res.statusText
+          throw new Error(String(message || "keepalive failed"))
+        }
+      }
+      try {
+        await once()
+      } catch (err) {
+        await new Promise((r) => setTimeout(r, 300))
+        await once()
+      }
+
+      if (hasActiveMedia) {
         _setLastBeat(Date.now() as any)
         setConsecutiveFailures(0)
         setConnectionHealth("ok" as any)
         return
       }
+      // media stream inactive despite keepalive
       throw new Error("mediaStream inactive")
     } catch (e: any) {
       setConsecutiveFailures((n) => n + 1)
@@ -116,6 +140,9 @@ export function StartStop() {
         const videoHeight = mediaStreamRef.current!.videoHeight
         console.log("Video dimensions:", videoWidth, videoHeight)
       }
+    }
+    return () => {
+      clearHeartbeat()
     }
   }, [mediaStreamRef, stream])
 
