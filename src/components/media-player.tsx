@@ -2,7 +2,7 @@ import React, { RefObject, useEffect, useRef } from "react"
 import { useAtom } from "jotai"
 import { ChevronRightIcon } from "lucide-react"
 
-import { customBgPicAtom, debugAtom, mediaStreamActiveAtom, connectionHealthAtom, lastHeartbeatAtAtom, consecutiveFailuresAtom } from "@/lib/atoms"
+import { customBgPicAtom, debugAtom, isSessionActiveAtom } from "@/lib/atoms"
 import { cn } from "@/lib/utils"
 
 import { MediaControls } from "./controls/media-controls"
@@ -13,9 +13,7 @@ import VideoWrap from "./video-wrap"
 function MediaPlayer() {
   const [customBgPic] = useAtom(customBgPicAtom)
   const [debug, setDebug] = useAtom(debugAtom)
-  const [health] = useAtom(connectionHealthAtom)
-  const [lastBeat] = useAtom(lastHeartbeatAtAtom)
-  const [fails] = useAtom(consecutiveFailuresAtom)
+  const [isSessionActive] = useAtom(isSessionActiveAtom)
 
   return (
     <div className="flex h-full w-full flex-col items-center justify-center space-y-1">
@@ -41,9 +39,9 @@ function MediaPlayer() {
           <p>{debug}</p>
         </div>
         <div className="flex items-center gap-3">
-          <span className={cn("px-2 py-0.5 rounded-md border", health === "ok" && "text-green-600 border-green-600", health === "degraded" && "text-amber-600 border-amber-600", health === "offline" && "text-red-600 border-red-600")}>{health}</span>
-          <span title="last heartbeat">{lastBeat ? new Date(lastBeat).toLocaleTimeString() : "-"}</span>
-          <span title="consecutive failures">x{fails}</span>
+          <span className={cn("px-2 py-0.5 rounded-md border", isSessionActive ? "text-green-600 border-green-600" : "text-red-600 border-red-600")}>
+            {isSessionActive ? "Active" : "Inactive"}
+          </span>
         </div>
       </footer>
     </div>

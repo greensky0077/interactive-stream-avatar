@@ -3,7 +3,7 @@ import { useAtom } from "jotai"
 
 import {
   mediaCanvasRefAtom,
-  mediaStreamActiveAtom,
+  isSessionActiveAtom,
   mediaStreamRefAtom,
   removeBGAtom,
 } from "@/lib/atoms"
@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils"
 
 export default function VideoWrap() {
   const [removeBG] = useAtom(removeBGAtom)
-  const [mediaStreamActive] = useAtom(mediaStreamActiveAtom)
+  const [isSessionActive] = useAtom(isSessionActiveAtom)
   const [mediaStreamRef, setMediaStreamRef] = useAtom(mediaStreamRefAtom) as [
     RefObject<HTMLVideoElement> | undefined,
     (value: RefObject<HTMLVideoElement> | undefined) => void,
@@ -30,7 +30,7 @@ export default function VideoWrap() {
   }, [setMediaStreamRef, setMediaCanvasRef])
 
   useEffect(() => {
-    if (!removeBG || !mediaStreamActive || !mediaStreamRef || !mediaCanvasRef)
+    if (!removeBG || !isSessionActive || !mediaStreamRef || !mediaCanvasRef)
       return
 
     const renderCanvas = () => {
@@ -73,10 +73,10 @@ export default function VideoWrap() {
 
     // Clean up function to cancel animation frame
     return () => cancelAnimationFrame(animationFrameId!)
-  }, [removeBG, mediaStreamActive])
+  }, [removeBG, isSessionActive])
 
   return (
-    <div id="videoWrap" className={cn(!mediaStreamActive && "hidden")}>
+    <div id="videoWrap" className={cn(!isSessionActive && "hidden")}>
       <video
         playsInline
         autoPlay

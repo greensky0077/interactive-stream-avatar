@@ -4,7 +4,7 @@ import { useAtom } from "jotai"
 
 import {
   avatarIdAtom,
-  mediaStreamActiveAtom,
+  isSessionActiveAtom,
   publicAvatarsAtom,
   removeBGAtom,
 } from "@/lib/atoms"
@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils"
 
 export default function ImageWrap() {
   const [removeBG] = useAtom(removeBGAtom)
-  const [mediaStreamActive] = useAtom(mediaStreamActiveAtom)
+  const [isSessionActive] = useAtom(isSessionActiveAtom)
   const [avatarId, setAvatarId] = useAtom(avatarIdAtom)
   const [publicAvatars, setPublicAvatars] = useAtom(publicAvatarsAtom)
 
@@ -57,7 +57,7 @@ export default function ImageWrap() {
   }, [removeBG])
 
   return (
-    <div id="imageWrap" className={cn(mediaStreamActive && "hidden")}>
+    <div id="imageWrap" className={cn(isSessionActive && "hidden")}>
       <Image
         src={(() => {
           if (!avatarId) return "/default.png"

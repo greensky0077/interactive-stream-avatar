@@ -18,10 +18,9 @@ import {
   chatModeAtom,
   debugAtom,
   inputTextAtom,
-  mediaStreamActiveAtom,
+  isSessionActiveAtom,
   providerModelAtom,
   sessionDataAtom,
-  keepAliveFunctionAtom,
 } from "@/lib/atoms"
 
 import { Button } from "../ui/button"
@@ -35,11 +34,10 @@ export function Chat() {
   const [avatar] = useAtom(avatarAtom)
   const [inputText, setInputText] = useAtom(inputTextAtom)
   const [sessionData] = useAtom(sessionDataAtom)
-  const [mediaStreamActive] = useAtom(mediaStreamActiveAtom)
+  const [isSessionActive] = useAtom(isSessionActiveAtom)
   const [, setDebug] = useAtom(debugAtom)
   const [chatMode, setChatMode] = useAtom(chatModeAtom)
   const [providerModel, setProviderModel] = useAtom(providerModelAtom)
-  const [keepAliveFunction] = useAtom(keepAliveFunctionAtom)
   const [isLoadingChat, setIsLoadingChat] = useState(false)
   const [chatError, setChatError] = useState<string | null>(null)
   const [showFallback, setShowFallback] = useState(false)
@@ -49,12 +47,13 @@ export function Chat() {
   const vadEnabledRef = useRef<boolean>(false)
   const vadSilenceTimerRef = useRef<any>(null)
   
-  // Use shared keep-alive function from start-stop component
-  async function keepAlive(sessionId: string): Promise<boolean> {
-    if (keepAliveFunction) {
-      return await keepAliveFunction()
-    }
-    return false
+  // Simple session validation
+  function isSessionValid(): boolean {
+    return Boolean(
+      isSessionActive && 
+      sessionData?.sessionId && 
+      avatar.current
+    )
   }
 
   function isRateLimited(limit = 3, windowMs = 5000): boolean {
@@ -249,24 +248,16 @@ export function Chat() {
       }
       return
     }
+    
     // Prevent empty input
     if (!input || !String(input).trim()) {
       setDebug("Please enter a message first")
       return
     }
 
-    if (!avatar.current) {
-      setDebug("Avatar API not initialized")
-      return
-    }
-
-    if (!sessionData?.sessionId) {
+    // Simple session validation
+    if (!isSessionValid()) {
       setDebug("No active session. Please start the avatar first.")
-      return
-    }
-
-    if (!mediaStreamActive) {
-      setDebug("Avatar session is not active. Please start the avatar first.")
       return
     }
 
@@ -278,15 +269,10 @@ export function Chat() {
     }
 
     try {
-      // keep session from idling out before action
-      const ok = await keepAlive(sessionData.sessionId)
-      if (!ok) {
-        setDebug("Unable to refresh session. Please try again or restart.")
-      }
       // mark speaking (best-effort)
       ;(avatar.current as any)._isSpeaking = true
       await avatar.current.speak({
-        taskRequest: { text: String(input).trim(), sessionId: sessionData.sessionId },
+        taskRequest: { text: String(input).trim(), sessionId: sessionData!.sessionId },
       })
     } catch (e: any) {
       console.error("Speak error:", e)
@@ -322,8 +308,8 @@ export function Chat() {
       contentText = String(contentText || "").trim()
       if (!contentText) return
 
-      // Check if avatar and session are available
-      if (!avatar.current || !sessionData?.sessionId || !mediaStreamActive) {
+      // Check if session is valid
+      if (!isSessionValid()) {
         return
       }
 
@@ -344,13 +330,11 @@ export function Chat() {
           processedSentences.current.add(trimmedSentence)
 
           if (!avatar.current) return
-          // keep-alive before auto speak
-          keepAlive(sessionData.sessionId).finally(() => {})
           avatar.current
             .speak({
               taskRequest: {
                 text: trimmedSentence,
-                sessionId: sessionData.sessionId,
+                sessionId: sessionData!.sessionId,
               },
             })
             .catch((e: any) => {
@@ -366,29 +350,20 @@ export function Chat() {
       // swallow errors to avoid React overlay
       console.error("Auto-speak effect error")
     }
-  }, [messages, avatar, sessionData, mediaStreamActive, setDebug])
+  }, [messages, avatar, sessionData, isSessionActive, setDebug])
 
   async function handleInterrupt() {
-    if (!avatar.current) {
-      setDebug("Avatar API not initialized")
-      return
-    }
-
-    if (!sessionData?.sessionId) {
+    // Simple session validation
+    if (!isSessionValid()) {
       setDebug("No active session to interrupt")
-      return
-    }
-
-    if (!mediaStreamActive) {
-      setDebug("Avatar session is not active")
       return
     }
 
     stop()
     
     try {
-      await avatar.current.interrupt({ 
-        interruptRequest: { sessionId: sessionData.sessionId } 
+      await avatar.current!.interrupt({ 
+        interruptRequest: { sessionId: sessionData!.sessionId } 
       })
     } catch (e: any) {
       console.error("Interrupt error:", e)

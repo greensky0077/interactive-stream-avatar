@@ -5,7 +5,7 @@ import { ImageDownIcon, VideoIcon, VideoOffIcon } from "lucide-react"
 import {
   isRecordingAtom,
   mediaCanvasRefAtom,
-  mediaStreamActiveAtom,
+  isSessionActiveAtom,
   mediaStreamRefAtom,
 } from "@/lib/atoms"
 
@@ -13,9 +13,7 @@ import { Button } from "../ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip"
 
 export function MediaControls() {
-  const [mediaStreamActive, setMediaStreamActive] = useAtom(
-    mediaStreamActiveAtom
-  )
+  const [isSessionActive] = useAtom(isSessionActiveAtom)
   const [mediaStreamRef] = useAtom(mediaStreamRefAtom)
   const [mediaCanvasRef] = useAtom(mediaCanvasRefAtom)
   const [isRecording, setIsRecording] = useAtom(isRecordingAtom)
@@ -109,7 +107,7 @@ export function MediaControls() {
               variant="ghost"
               size="icon"
               onClick={handleCapture}
-              disabled={!mediaStreamActive}
+              disabled={!isSessionActive}
             >
               <ImageDownIcon className="size-4" />
               <span className="sr-only">
@@ -128,7 +126,7 @@ export function MediaControls() {
               variant="ghost"
               size="icon"
               onClick={isRecording ? handleStopRecording : handleStartRecording}
-              disabled={!mediaStreamActive}
+              disabled={!isSessionActive}
             >
               {isRecording ? (
                 <VideoOffIcon className="h-4 w-4" />

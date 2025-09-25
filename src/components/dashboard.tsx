@@ -17,7 +17,7 @@ import {
 
 import {
   debugAtom,
-  mediaStreamActiveAtom,
+  isSessionActiveAtom,
   selectedNavItemAtom,
 } from "@/lib/atoms"
 import { NavItem } from "@/lib/types"
@@ -45,7 +45,7 @@ import { Settings } from "./settings"
 import { Badge } from "./ui/badge"
 
 export function Dashboard() {
-  const [mediaStreamActive] = useAtom(mediaStreamActiveAtom)
+  const [isSessionActive] = useAtom(isSessionActiveAtom)
 
   const navItems: NavItem[] = [
     {
@@ -207,7 +207,7 @@ export function Dashboard() {
               variant="outline"
               className="absolute right-3 top-3 font-mono font-normal"
             >
-              {mediaStreamActive ? (
+              {isSessionActive ? (
                 <div className="flex space-x-1">
                   <svg
                     className="text-rose-400"

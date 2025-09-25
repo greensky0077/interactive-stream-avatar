@@ -10,7 +10,6 @@ import { NavItem } from "./types"
 import { defaultAvatarId, defaultVoiceId } from "./heygen-presets"
 
 //Stream Atoms
-export const mediaStreamActiveAtom = atom<Boolean>(false)
 export const sessionDataAtom = atom<NewSessionData | undefined>(undefined)
 export const streamAtom = atom<MediaStream | undefined>(undefined)
 export const debugAtom = atom<string>("")
@@ -25,6 +24,9 @@ export const mediaCanvasRefAtom = atom<RefObject<HTMLCanvasElement> | null>(
 export const avatarAtom = atom<RefObject<StreamingAvatarApi> | undefined>(
   undefined
 )
+
+// Simple session state - true if session is active and valid
+export const isSessionActiveAtom = atom<boolean>(false)
 
 //UI Atoms
 export const selectedNavItemAtom = atom<NavItem>({
@@ -44,9 +46,5 @@ export const providerModelAtom = atom("openai:gpt-4-turbo")
 export const temperatureAtom = atom(1)
 export const maxTokensAtom = atom(256)
 
-// Connection/health atoms
-export const lastHeartbeatAtAtom = atom<number | null>(null)
-export const consecutiveFailuresAtom = atom<number>(0)
-export const connectionHealthAtom = atom<"ok" | "degraded" | "offline">("ok")
+// Simple error tracking
 export const lastErrorAtom = atom<string>("")
-export const keepAliveFunctionAtom = atom<(() => Promise<boolean>) | null>(null)
