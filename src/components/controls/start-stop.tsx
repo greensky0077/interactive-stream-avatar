@@ -301,11 +301,29 @@ export function StartStop() {
 
     setMediaStreamActive(false)
     clearHeartbeat()
+
+    // Preflight: if keep-alive fails/unauthorized, skip remote stop to avoid 401 noise
+    let canCallRemoteStop = true
     try {
-      await avatarRef.current.stopAvatar(
-        { stopSessionRequest: { sessionId: sessionData.sessionId } },
-        setDebug
-      )
+      const res = await fetch("/api/keepalive", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ session_id: sessionData.sessionId }),
+      })
+      if (!res.ok) {
+        canCallRemoteStop = false
+      }
+    } catch {
+      canCallRemoteStop = false
+    }
+
+    try {
+      if (canCallRemoteStop) {
+        await avatarRef.current.stopAvatar(
+          { stopSessionRequest: { sessionId: sessionData.sessionId } },
+          setDebug
+        )
+      }
     } catch (e: any) {
       // Some SDK versions throw if internal transport is already closed
       const message = e?.message || "Failed to stop avatar"
