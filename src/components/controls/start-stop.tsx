@@ -14,6 +14,11 @@ import {
   mediaCanvasRefAtom,
   mediaStreamActiveAtom,
   mediaStreamRefAtom,
+  lastHeartbeatAtAtom,
+  consecutiveFailuresAtom,
+  connectionHealthAtom,
+  lastErrorAtom,
+  publicAvatarsAtom,
   qualityAtom,
   sessionDataAtom,
   streamAtom,
@@ -28,7 +33,11 @@ export function StartStop() {
   )
   const [quality, setQuality] = useAtom(qualityAtom)
   const [avatarId, setAvatarId] = useAtom(avatarIdAtom)
-  const [voiceId, setVoiceId] = useAtom(voiceIdAtom)
+  const [publicAvatars] = useAtom(publicAvatarsAtom)
+  const [consecutiveFailures, setConsecutiveFailures] = useAtom(consecutiveFailuresAtom)
+  const [, _setLastBeat] = useAtom(lastHeartbeatAtAtom as any)
+  const [, setConnectionHealth] = useAtom(connectionHealthAtom)
+  const [, setLastError] = useAtom(lastErrorAtom)
   const [mediaStreamRef] = useAtom(mediaStreamRefAtom)
   const [mediaCanvasRef] = useAtom(mediaCanvasRefAtom)
   const [sessionData, setSessionData] = useAtom(sessionDataAtom) as [
@@ -50,6 +59,50 @@ export function StartStop() {
     setAvatar(avatarRef)
   }, [setAvatar])
 
+  const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const backoffRef = useRef<number>(1000)
+
+  function clearHeartbeat() {
+    if (heartbeatTimerRef.current) {
+      clearInterval(heartbeatTimerRef.current)
+      heartbeatTimerRef.current = null
+    }
+  }
+
+  async function checkAlive() {
+    try {
+      const active = Boolean(avatarRef.current?.mediaStream?.active)
+      if (active) {
+        _setLastBeat(Date.now() as any)
+        setConsecutiveFailures(0)
+        setConnectionHealth("ok" as any)
+        return
+      }
+      throw new Error("mediaStream inactive")
+    } catch (e: any) {
+      setConsecutiveFailures((n) => n + 1)
+      setLastError(e?.message || "heartbeat failed")
+      const fails = consecutiveFailures + 1
+      if (fails >= 2) setConnectionHealth("degraded" as any)
+      if (fails >= 4) {
+        setConnectionHealth("offline" as any)
+        await safeRestart()
+      }
+    }
+  }
+
+  async function safeRestart() {
+    if (isStartingRef.current) return
+    setDebug("Reconnecting...")
+    clearHeartbeat()
+    try {
+      await stop()
+    } catch {}
+    await new Promise((r) => setTimeout(r, backoffRef.current))
+    backoffRef.current = Math.min(backoffRef.current * 2, 10000)
+    await grab()
+  }
+
   useEffect(() => {
     if (stream && mediaStreamRef?.current) {
       mediaStreamRef.current.srcObject = stream
@@ -66,7 +119,39 @@ export function StartStop() {
     }
   }, [mediaStreamRef, stream])
 
+  const isStartingRef = useRef(false)
+
   async function grab() {
+    if (isStartingRef.current) {
+      setDebug("Already starting a session...")
+      return
+    }
+
+    if (!avatarId) {
+      setDebug("Please select an Avatar ID")
+      return
+    }
+    // voice is optional; server will assign compatible default
+
+    // If there is a previous instance lingering, try to stop/cleanup
+    try {
+      if (avatarRef.current && sessionData?.sessionId) {
+        await avatarRef.current.stopAvatar(
+          { stopSessionRequest: { sessionId: sessionData.sessionId } },
+          setDebug
+        )
+      }
+    } catch (e) {
+      // ignore, we are about to recreate; avoid propagating library close errors
+    } finally {
+      avatarRef.current = undefined
+      setStream(undefined)
+      setSessionData(undefined)
+      setMediaStreamActive(false)
+    }
+
+    isStartingRef.current = true
+
     const response = await fetch("/api/grab", {
       method: "POST",
       headers: {
@@ -78,33 +163,109 @@ export function StartStop() {
     }
     const data = await response.json()
 
-    avatarRef.current = new StreamingAvatarApi(
-      new Configuration({
-        accessToken: data.data.data.token,
-      })
-    )
+    try {
+      avatarRef.current = new StreamingAvatarApi(
+        new Configuration({
+          accessToken: data.data.data.token,
+        })
+      )
+      
+      // attempt start with selected voiceId
+      const attemptStart = async (voice?: string) => {
+        const payload: any = {
+          newSessionRequest: {
+            quality: quality, // low, medium, high
+            avatarName: avatarId,
+          },
+        }
+        if (voice) payload.newSessionRequest.voice = { voiceId: voice }
 
-    const res = await avatarRef.current.createStartAvatar(
-      {
-        newSessionRequest: {
-          quality: quality, // low, medium, high
-          avatarName: avatarId,
-          voice: { voiceId: voiceId },
-        },
-      },
-      setDebug
-    )
+        return await avatarRef.current!.createStartAvatar(payload, setDebug)
+      }
 
-    setSessionData(res)
-    setStream(avatarRef.current.mediaStream)
+      let res: NewSessionData | undefined
+      try {
+        // start without explicit voice first to let server choose compatible one
+        res = await attemptStart(undefined)
+      } catch (err: any) {
+        const msg = String(err?.message || "")
+        // voice not supported — try avatar default voice if available
+        if (msg.includes("voice is not supported")) {
+          const fallback = (publicAvatars || []).find((a: any) => a.pose_id === avatarId)?.default_voice?.free as string | undefined
+          try {
+            if (fallback) {
+              res = await attemptStart(fallback)
+            }
+          } catch {}
+          // if still no res, try without voice to let server choose default
+          if (!res) {
+            try {
+              res = await attemptStart(undefined)
+            } catch {}
+          }
+        }
+        // rethrow if still no success and not handled
+        if (!res) throw err
+      }
+
+      setSessionData(res!)
+      setStream(avatarRef.current.mediaStream)
+      setMediaStreamActive(true)
+      // attach track-end reconnect
+      try {
+        const ms = avatarRef.current.mediaStream
+        ms?.getVideoTracks()?.forEach((t) => (t.onended = () => safeRestart()))
+        ms?.getAudioTracks()?.forEach((t) => (t.onended = () => safeRestart()))
+      } catch {}
+      // start heartbeat
+      clearHeartbeat()
+      backoffRef.current = 1000
+      heartbeatTimerRef.current = setInterval(checkAlive, 25000)
+    } catch (e: any) {
+      const message = e?.message || "Failed to start avatar session"
+      setDebug(message)
+      // ensure cleanup to avoid library attempting to close undefined internals
+      avatarRef.current = undefined
+      setStream(undefined)
+      setSessionData(undefined)
+      setMediaStreamActive(false)
+    } finally {
+      isStartingRef.current = false
+    }
   }
 
   async function stop() {
+    // Guard: nothing to stop
+    if (!avatarRef.current) {
+      setDebug("Avatar not initialized")
+      return
+    }
+
+    if (!sessionData?.sessionId) {
+      setDebug("No active session to stop")
+      return
+    }
+
     setMediaStreamActive(false)
-    await avatarRef.current!.stopAvatar(
-      { stopSessionRequest: { sessionId: sessionData?.sessionId } },
-      setDebug
-    )
+    clearHeartbeat()
+    try {
+      await avatarRef.current.stopAvatar(
+        { stopSessionRequest: { sessionId: sessionData.sessionId } },
+        setDebug
+      )
+    } catch (e: any) {
+      // Some SDK versions throw if internal transport is already closed
+      const message = e?.message || "Failed to stop avatar"
+      if (message.toLowerCase().includes("close")) {
+        setDebug("Session already closed")
+      } else {
+        setDebug(message)
+      }
+    } finally {
+      // Clean up local refs/state regardless of SDK outcome
+      setStream(undefined)
+      setSessionData(undefined)
+    }
   }
 
   return (

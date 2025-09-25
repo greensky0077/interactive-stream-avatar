@@ -12,6 +12,10 @@ const nextConfig = {
       },
     ],
   },
+  // Handle font loading issues gracefully
+  experimental: {
+    optimizePackageImports: ['@radix-ui/react-icons'],
+  },
 }
 
 export default nextConfig

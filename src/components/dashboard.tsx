@@ -7,9 +7,7 @@ import {
   Bird,
   Book,
   BookOpenTextIcon,
-  Bot,
   ChevronRightIcon,
-  Code2,
   Settings2Icon,
   SettingsIcon,
   Share,
@@ -42,7 +40,6 @@ import {
 import { Chat } from "./controls/chat"
 import MediaPlayer from "./media-player"
 import ModeToggle from "./mode-toggle"
-import { Models } from "./models"
 import { Playground } from "./playground"
 import { Settings } from "./settings"
 import { Badge } from "./ui/badge"
@@ -57,18 +54,7 @@ export function Dashboard() {
       ariaLabel: "Playground",
       content: <Playground />,
     },
-    {
-      label: "LLM Models",
-      icon: <Bot className="size-5" />,
-      ariaLabel: "Models",
-      content: <Models />,
-    },
-    {
-      label: "API",
-      icon: <Code2 className="size-5" />,
-      ariaLabel: "API",
-      content: <>api</>,
-    },
+    // Removed API and Models panes per request
     {
       label: "Settings",
       icon: <Settings2Icon className="size-5" />,

@@ -46,24 +46,32 @@ export function Providers() {
       setResult(text)
       return
     }
+    try {
+      const [provider, model] = providerModel.split(":")
+      const messages = [
+        { role: "system", content: "You are a helpful assistant." },
+        { role: "user", content: prompt || "Hello" },
+      ]
 
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        providerModel: providerModel,
-        prompt: prompt,
-      }),
-    })
+      const endpoint = provider === "openai" ? "/api/chat" : "/api/chat-alternative"
+      const body = provider === "openai" ? { messages } : { messages, provider }
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch: ${response.statusText}`)
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+
+      if (!response.ok) {
+        const errText = await response.text()
+        throw new Error(`Failed to fetch: ${response.status} ${errText}`)
+      }
+
+      // For streaming endpoints, just show a success note
+      setResult("Request sent successfully. Check the main chat for streamed output.")
+    } catch (e: any) {
+      setResult(e?.message || "Request failed")
     }
-
-    const result = await response.json()
-    setResult(result.data)
   }
 
   return (
@@ -122,6 +130,7 @@ export function Providers() {
               placeholder="0.4"
               value={temperature}
               className="ml-auto w-20"
+              onChange={(e) => setTemperature(Number(e.target.value))}
             />
           </p>
           <Slider
@@ -142,6 +151,7 @@ export function Providers() {
               placeholder="0.4"
               value={maxTokens}
               className="ml-auto w-20"
+              onChange={(e) => setMaxTokens(Number(e.target.value))}
             />
           </p>
           <Slider

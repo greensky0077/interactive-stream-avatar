@@ -6,10 +6,10 @@ import {
   avatarIdAtom,
   publicAvatarsAtom,
   qualityAtom,
-  voiceIdAtom,
 } from "@/lib/atoms"
 
 import { Label } from "../ui/label"
+import { interactiveAvatarIds } from "@/lib/heygen-presets"
 import {
   Select,
   SelectContent,
@@ -22,38 +22,53 @@ export function Session() {
   const [publicAvatars, setPublicAvatars] = useAtom(publicAvatarsAtom)
   const [quality, setQuality] = useAtom(qualityAtom)
   const [avatarId, setAvatarId] = useAtom(avatarIdAtom)
-  const [voiceId, setVoiceId] = useAtom(voiceIdAtom)
 
   useEffect(() => {
-    const fetchAvatars = async () => {
+    // Prefer real public list to get preview images; fallback to presets
+    const loadAvatars = async () => {
       try {
-        const response = await fetch("/public-streaming-avatars.json")
-        const data = await response.json()
-        setPublicAvatars(data.data.avatar)
+        const res = await fetch("/public-streaming-avatars.json")
+        if (res.ok) {
+          const data = await res.json()
+          if (data?.data?.avatar) {
+            setPublicAvatars(data.data.avatar)
+            return
+          }
+        }
+        // fallback
+        setPublicAvatars(
+          interactiveAvatarIds.map((pose_id) => ({
+            pose_id,
+            pose_name: pose_id.replace(/_/g, " "),
+            gender: "",
+            // voice will be assigned by server if omitted
+            normal_preview: "/default.png",
+          }))
+        )
       } catch (error) {
-        console.error("Error fetching avatars:", error)
+        console.error("Error fetching avatars, using presets:", error)
+        setPublicAvatars(
+          interactiveAvatarIds.map((pose_id) => ({
+            pose_id,
+            pose_name: pose_id.replace(/_/g, " "),
+            gender: "",
+            // voice will be assigned by server if omitted
+            normal_preview: "/default.png",
+          }))
+        )
       }
     }
-    fetchAvatars()
+    loadAvatars()
   }, [])
 
-  useEffect(() => {
-    if (avatarId !== "") {
-      const default_voice = publicAvatars.find(
-        (avatar) => avatar.pose_id === avatarId
-      )["default_voice"]["free"]
-
-      setVoiceId(default_voice)
-      console.log(default_voice)
-    }
-  }, [avatarId])
+  // voice selection removed — server default will be used
 
   return (
     <fieldset className="grid gap-6 rounded-lg border p-4">
       <legend className="-ml-1 px-1 text-sm font-medium">Session</legend>
       <div className="grid gap-3">
         <Label htmlFor="model">Avatar ID</Label>
-        <Select onValueChange={(x) => setAvatarId(x)}>
+        <Select value={avatarId} onValueChange={(x) => setAvatarId(x)}>
           <SelectTrigger
             id="model"
             className="items-start [&_[data-description]]:hidden"
@@ -87,18 +102,7 @@ export function Session() {
         </Select>
       </div>
 
-      <div className="grid gap-3">
-        <Label htmlFor="model">Voice ID</Label>
-        <Select onValueChange={(x) => setVoiceId(x)}>
-          <SelectTrigger
-            id="model"
-            className="items-start [&_[data-description]]:hidden"
-          >
-            <SelectValue placeholder="Default" />
-          </SelectTrigger>
-          <SelectContent>Enter your API key</SelectContent>
-        </Select>
-      </div>
+      {/* Voice selection removed intentionally. */}
 
       <div className="grid gap-3">
         <Label htmlFor="model">Bitrate</Label>

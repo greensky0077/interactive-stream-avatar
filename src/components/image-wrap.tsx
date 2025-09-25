@@ -59,13 +59,12 @@ export default function ImageWrap() {
   return (
     <div id="imageWrap" className={cn(mediaStreamActive && "hidden")}>
       <Image
-        src={
-          avatarId === ""
-            ? "/default.png"
-            : publicAvatars.find((avatar) => avatar.pose_id === avatarId)[
-                "normal_preview"
-              ]
-        }
+        src={(() => {
+          if (!avatarId) return "/default.png"
+          const found = publicAvatars?.find((avatar) => avatar.pose_id === avatarId)
+          const preview = found?.normal_preview as string | undefined
+          return preview || "/default.png"
+        })()}
         className={cn("inline-block max-w-full", removeBG ? "hidden" : "flex")}
         alt="default image"
         ref={imageRef}
