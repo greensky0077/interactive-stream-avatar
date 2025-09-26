@@ -167,44 +167,47 @@ export async function POST(req: Request) {
       const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs")
       console.log("PDF.js imported successfully")
       
-      // Configure PDF.js for serverless environment - use local worker
-      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-        'pdfjs-dist/legacy/build/pdf.worker.min.mjs',
-        import.meta.url
-      ).toString()
+      // Configure PDF.js for serverless environment - disable worker for better compatibility
+      pdfjsLib.GlobalWorkerOptions.workerSrc = null
       
       console.log("Loading PDF document...")
-      // Load the PDF document from buffer with better configuration
+      // Load the PDF document from buffer with optimized configuration
       const loadingTask = pdfjsLib.getDocument({ 
         data: arr,
-        useSystemFonts: false,
+        useSystemFonts: true,
         disableFontFace: false,
-        disableRange: false,
-        disableStream: false,
-        verbosity: 0 // Reduce console output
+        disableRange: true,
+        disableStream: true,
+        verbosity: 0,
+        // Additional options for better text extraction
+        cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/cmaps/`,
+        cMapPacked: true,
+        standardFontDataUrl: `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/standard_fonts/`
       })
       
       const pdfDoc = await loadingTask.promise
       console.log(`PDF loaded successfully: ${pdfDoc.numPages} pages`)
       
-      // Extract text from all pages with better text extraction
+      // Extract text from all pages with improved text extraction
       let fullText = ""
       for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
         console.log(`Processing page ${pageNum}/${pdfDoc.numPages}`)
         const page = await pdfDoc.getPage(pageNum)
         const textContent = await page.getTextContent()
         
-        // Better text extraction - preserve structure and handle text items properly
+        // Improved text extraction with better structure preservation
         const pageText = textContent.items
           .map((item: any) => {
-            if (item.str) {
-              return item.str
+            if (item.str && item.str.trim()) {
+              // Add spacing based on text positioning
+              const space = item.hasEOL ? '\n' : ' '
+              return item.str + space
             }
             return ""
           })
-          .filter(text => text.trim().length > 0)
-          .join(" ")
+          .join("")
           .replace(/\s+/g, " ") // Normalize whitespace
+          .replace(/\n\s+/g, "\n") // Clean up line breaks
           .trim()
         
         if (pageText) {
@@ -218,51 +221,98 @@ export async function POST(req: Request) {
     } catch (pdfjsError: any) {
       console.error("PDF.js parsing failed:", pdfjsError)
       
-      // Fallback: Better text extraction from PDF structure
+      // Fallback: Advanced text extraction from PDF structure
       try {
         console.log("Attempting fallback text extraction...")
         const bufferString = Buffer.from(arr).toString('binary')
         
-        // More comprehensive text extraction patterns
-        const patterns = [
-          /\(([^)]+)\)/g, // Text in parentheses
-          /\[([^\]]+)\]/g, // Text in brackets
-          /<<[^>]*\/Length\s+\d+[^>]*>>\s*stream\s*([^>]*?)\s*endstream/g, // Stream content
-          /BT\s*([^>]*?)\s*ET/g, // Text objects
-        ]
-        
+        // Multiple extraction strategies
         let extractedText = ""
         
-        for (const pattern of patterns) {
-          const matches = bufferString.match(pattern)
-          if (matches) {
-            const textFromPattern = matches
-              .map(match => {
-                // Extract content based on pattern type
-                if (pattern.source.includes('\\(([^)]+)\\)')) {
-                  return match.slice(1, -1) // Remove parentheses
-                } else if (pattern.source.includes('\\[([^\\]]+)\\]')) {
-                  return match.slice(1, -1) // Remove brackets
-                } else if (pattern.source.includes('stream')) {
-                  return match.replace(/^.*?stream\s*/, '').replace(/\s*endstream.*$/, '')
-                } else {
-                  return match.replace(/^BT\s*/, '').replace(/\s*ET$/, '')
-                }
-              })
-              .join(' ')
-              .replace(/\\[rn]/g, ' ') // Replace escape sequences
-              .replace(/\\[()]/g, '') // Remove escaped parentheses
-              .replace(/[^\w\s.,!?;:()\-@#&]/g, ' ') // Keep more readable characters
-              .replace(/\s+/g, ' ') // Normalize whitespace
-              .trim()
-            
-            if (textFromPattern.length > extractedText.length) {
-              extractedText = textFromPattern
-            }
+        // Strategy 1: Extract text from PDF text objects (most reliable)
+        const textObjectPattern = /BT\s*([^>]*?)\s*ET/g
+        const textMatches = bufferString.match(textObjectPattern)
+        if (textMatches && textMatches.length > 0) {
+          const textFromObjects = textMatches
+            .map(match => match.replace(/^BT\s*/, '').replace(/\s*ET$/, ''))
+            .join(' ')
+            .replace(/\\[rn]/g, ' ')
+            .replace(/\\[()]/g, '')
+            .replace(/[^\w\s.,!?;:()\-@#&]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+          
+          if (textFromObjects.length > extractedText.length) {
+            extractedText = textFromObjects
           }
         }
         
-        if (extractedText.length > 100) {
+        // Strategy 2: Extract text from parentheses (common in PDFs)
+        const parenPattern = /\(([^)]+)\)/g
+        const parenMatches = bufferString.match(parenPattern)
+        if (parenMatches && parenMatches.length > 0) {
+          const textFromParens = parenMatches
+            .map(match => match.slice(1, -1))
+            .filter(text => text.length > 2 && /[a-zA-Z]/.test(text)) // Filter meaningful text
+            .join(' ')
+            .replace(/\\[rn]/g, ' ')
+            .replace(/[^\w\s.,!?;:()\-@#&]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+          
+          if (textFromParens.length > extractedText.length) {
+            extractedText = textFromParens
+          }
+        }
+        
+        // Strategy 3: Extract from PDF streams
+        const streamPattern = /<<[^>]*\/Length\s+\d+[^>]*>>\s*stream\s*([^>]*?)\s*endstream/g
+        const streamMatches = bufferString.match(streamPattern)
+        if (streamMatches && streamMatches.length > 0) {
+          const textFromStreams = streamMatches
+            .map(match => match.replace(/^.*?stream\s*/, '').replace(/\s*endstream.*$/, ''))
+            .join(' ')
+            .replace(/[^\x20-\x7E]/g, ' ') // Keep only printable ASCII
+            .replace(/\s+/g, ' ')
+            .trim()
+          
+          if (textFromStreams.length > extractedText.length) {
+            extractedText = textFromStreams
+          }
+        }
+        
+        // Strategy 4: Extract from PDF content streams
+        const contentPattern = /\/Contents\s*<<[^>]*\/Length\s+\d+[^>]*>>\s*stream\s*([^>]*?)\s*endstream/g
+        const contentMatches = bufferString.match(contentPattern)
+        if (contentMatches && contentMatches.length > 0) {
+          const textFromContent = contentMatches
+            .map(match => match.replace(/^.*?stream\s*/, '').replace(/\s*endstream.*$/, ''))
+            .join(' ')
+            .replace(/[^\x20-\x7E]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+          
+          if (textFromContent.length > extractedText.length) {
+            extractedText = textFromContent
+          }
+        }
+        
+        // Strategy 5: Look for readable text patterns
+        const readablePattern = /[A-Za-z]{3,}[^A-Za-z]*[A-Za-z]{3,}/g
+        const readableMatches = bufferString.match(readablePattern)
+        if (readableMatches && readableMatches.length > 0) {
+          const textFromReadable = readableMatches
+            .join(' ')
+            .replace(/[^\w\s.,!?;:()\-@#&]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+          
+          if (textFromReadable.length > extractedText.length) {
+            extractedText = textFromReadable
+          }
+        }
+        
+        if (extractedText.length > 50) {
           parsed = { text: extractedText }
           parsingMethod = "fallback-extraction"
           console.log(`Fallback extraction successful: ${extractedText.length} characters`)
@@ -273,38 +323,87 @@ export async function POST(req: Request) {
       } catch (fallbackError: any) {
         console.error("All parsing methods failed:", fallbackError)
         
-        return Response.json({ 
-          error: "PDF parsing failed: Unable to extract text from PDF",
-          details: `PDF.js error: ${pdfjsError.message}. Fallback error: ${fallbackError.message}`,
-          suggestion: "Please ensure the PDF contains readable text, is not password-protected, and is not corrupted.",
-          technicalInfo: {
-            fileSize: arr.length,
-            fileName: file.name,
-            errorType: "PDF_PARSING_FAILED"
+        // Final fallback: Try to extract any readable text from the binary data
+        try {
+          console.log("Attempting final fallback: binary text extraction...")
+          const binaryString = Buffer.from(arr).toString('utf8', 0, Math.min(arr.length, 1024 * 1024)) // Limit to 1MB
+          
+          // Look for common text patterns in the binary data
+          const textPatterns = [
+            /[A-Za-z]{4,}\s+[A-Za-z]{4,}/g, // Words with spaces
+            /[A-Za-z]{3,}[0-9]{2,4}/g, // Words with numbers (dates, etc.)
+            /[A-Za-z]{3,}@[A-Za-z]{3,}/g, // Email patterns
+            /[A-Za-z]{3,}\.[A-Za-z]{2,}/g, // Domain patterns
+          ]
+          
+          let finalText = ""
+          for (const pattern of textPatterns) {
+            const matches = binaryString.match(pattern)
+            if (matches) {
+              finalText += matches.join(' ') + ' '
+            }
           }
-        }, { status: 500 })
+          
+          if (finalText.trim().length > 20) {
+            parsed = { text: finalText.trim() }
+            parsingMethod = "binary-fallback"
+            console.log(`Binary fallback successful: ${finalText.length} characters`)
+          } else {
+            throw new Error("No readable text found in binary data")
+          }
+          
+        } catch (finalError: any) {
+          console.error("All extraction methods failed:", finalError)
+          
+          return Response.json({ 
+            error: "PDF parsing failed: Unable to extract text from PDF",
+            details: `PDF.js error: ${pdfjsError.message}. Fallback error: ${fallbackError.message}. Final error: ${finalError.message}`,
+            suggestion: "Please ensure the PDF contains readable text, is not password-protected, and is not corrupted. Try using a different PDF file.",
+            technicalInfo: {
+              fileSize: arr.length,
+              fileName: file.name,
+              errorType: "PDF_PARSING_FAILED"
+            }
+          }, { status: 500 })
+        }
       }
     }
     
-    // Better text cleaning and processing
+    // Advanced text cleaning and processing
     let rawText = parsed.text || ""
+    
+    console.log(`Raw extracted text length: ${rawText.length} characters`)
+    console.log(`Raw text preview: ${rawText.substring(0, 300)}...`)
     
     // Clean up the text more carefully
     rawText = rawText
       .replace(/[\u0000-\u001F\u007F-\u009F]/g, " ") // Remove control characters
+      .replace(/\\[rn]/g, " ") // Replace escape sequences
+      .replace(/\\[()]/g, "") // Remove escaped parentheses
+      .replace(/[^\w\s.,!?;:()\-@#&]/g, " ") // Keep only readable characters
       .replace(/\s+/g, " ") // Normalize whitespace
       .replace(/([.!?])\s*([A-Z])/g, "$1\n$2") // Add line breaks after sentences
       .replace(/\n\s*\n/g, "\n") // Remove empty lines
+      .replace(/\s+$/gm, "") // Remove trailing spaces from lines
       .trim()
     
-    console.log(`Extracted text length: ${rawText.length} characters`)
-    console.log(`Text preview: ${rawText.substring(0, 200)}...`)
+    // Additional cleaning for common PDF artifacts
+    rawText = rawText
+      .replace(/\b\w{1,2}\s+/g, " ") // Remove very short words (likely artifacts)
+      .replace(/\s+([.!?])/g, "$1") // Fix spacing before punctuation
+      .replace(/([a-z])([A-Z])/g, "$1 $2") // Add spaces between camelCase
+      .replace(/\s+/g, " ") // Final whitespace normalization
+      .trim()
     
-    if (!rawText || rawText.length < 50) {
+    console.log(`Cleaned text length: ${rawText.length} characters`)
+    console.log(`Cleaned text preview: ${rawText.substring(0, 300)}...`)
+    
+    if (!rawText || rawText.length < 30) {
       console.log("No meaningful text extracted from PDF")
       return Response.json({ 
-        error: "No meaningful text content found in PDF. The PDF may be image-based or corrupted.",
-        suggestion: "Please ensure the PDF contains selectable text and is not password-protected."
+        error: "No meaningful text content found in PDF. The PDF may be image-based, password-protected, or corrupted.",
+        suggestion: "Please ensure the PDF contains selectable text and is not password-protected. Try using a different PDF file.",
+        parsingMethod: parsingMethod
       }, { status: 400 })
     }
 
