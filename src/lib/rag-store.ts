@@ -1,5 +1,5 @@
 /**
- * @fileoverview In-memory RAG store for chunks and embeddings.
+ * @fileoverview Persistent RAG store for chunks and embeddings using global cache.
  */
 
 export type RagChunk = {
@@ -12,12 +12,76 @@ export type RagEmbedding = {
   vector: number[]
 }
 
-export const ragChunks: RagChunk[] = []
-export const ragEmbeddings: RagEmbedding[] = []
+export type RagStore = {
+  chunks: RagChunk[]
+  embeddings: RagEmbedding[]
+  timestamp: number
+}
 
-export function clearRagStore(): void {
-  ragChunks.length = 0
-  ragEmbeddings.length = 0
+// Global cache that persists across requests in the same process
+declare global {
+  var __ragStore: RagStore | undefined
+}
+
+// Initialize global store if it doesn't exist
+if (!global.__ragStore) {
+  global.__ragStore = {
+    chunks: [],
+    embeddings: [],
+    timestamp: 0
+  }
+}
+
+function getRagStore(): RagStore {
+  return global.__ragStore!
+}
+
+function setRagStore(store: RagStore): void {
+  global.__ragStore = store
+}
+
+export async function getRagChunks(): Promise<RagChunk[]> {
+  const store = getRagStore()
+  
+  // Check if store is not too old (24 hours)
+  const now = Date.now()
+  if (now - store.timestamp > 24 * 60 * 60 * 1000) {
+    console.log('RAG store expired, clearing...')
+    setRagStore({ chunks: [], embeddings: [], timestamp: 0 })
+    return []
+  }
+  
+  console.log(`Loaded RAG store: ${store.chunks.length} chunks, ${store.embeddings.length} embeddings`)
+  return store.chunks
+}
+
+export async function getRagEmbeddings(): Promise<RagEmbedding[]> {
+  const store = getRagStore()
+  
+  // Check if store is not too old (24 hours)
+  const now = Date.now()
+  if (now - store.timestamp > 24 * 60 * 60 * 1000) {
+    console.log('RAG store expired, clearing...')
+    setRagStore({ chunks: [], embeddings: [], timestamp: 0 })
+    return []
+  }
+  
+  return store.embeddings
+}
+
+export async function setRagData(chunks: RagChunk[], embeddings: RagEmbedding[]): Promise<void> {
+  const store: RagStore = {
+    chunks,
+    embeddings,
+    timestamp: Date.now()
+  }
+  setRagStore(store)
+  console.log(`Saved RAG store: ${chunks.length} chunks, ${embeddings.length} embeddings`)
+}
+
+export async function clearRagStore(): Promise<void> {
+  setRagStore({ chunks: [], embeddings: [], timestamp: 0 })
+  console.log('RAG store cleared')
 }
 
 export function cosineSimilarity(a: number[], b: number[]): number {

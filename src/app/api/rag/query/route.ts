@@ -1,10 +1,10 @@
-import { ragChunks, ragEmbeddings, cosineSimilarity } from "@/lib/rag-store"
+import { getRagChunks, getRagEmbeddings, cosineSimilarity } from "@/lib/rag-store"
 import { openai } from "@ai-sdk/openai"
 import { generateText } from "ai"
 
 export const maxDuration = 30
 
-function search(queryVec: number[], topK = 5) {
+async function search(queryVec: number[], ragEmbeddings: any[], ragChunks: any[], topK = 5) {
   const scored = ragEmbeddings.map((e) => ({ id: e.id, score: cosineSimilarity(queryVec, e.vector) }))
   scored.sort((a, b) => b.score - a.score)
   const top = scored.slice(0, topK)
@@ -59,13 +59,17 @@ export async function POST(req: Request) {
   try {
     const { query } = await req.json()
     if (!query) return Response.json({ error: "query required" }, { status: 400 })
+    
+    const ragChunks = await getRagChunks()
+    const ragEmbeddings = await getRagEmbeddings()
+    
     if (ragEmbeddings.length === 0) return Response.json({ error: "index empty" }, { status: 400 })
 
     console.log(`RAG query received: "${query}"`)
     console.log(`Available chunks: ${ragChunks.length}, embeddings: ${ragEmbeddings.length}`)
 
     const qv = pseudoEmbed(String(query))
-    const top = search(qv, 5)
+    const top = await search(qv, ragEmbeddings, ragChunks, 5)
     console.log(`Found ${top.length} relevant chunks`)
     
     const context = top.map((c, i) => `Chunk ${i + 1}: ${c.text}`).join("\n\n")

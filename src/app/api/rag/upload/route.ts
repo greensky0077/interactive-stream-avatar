@@ -1,7 +1,7 @@
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-import { clearRagStore, ragChunks, ragEmbeddings } from "@/lib/rag-store"
+import { clearRagStore, setRagData } from "@/lib/rag-store"
 
 export const maxDuration = 30
 
@@ -267,17 +267,16 @@ export async function POST(req: Request) {
       }, { status: 400 })
     }
 
-    clearRagStore()
+    await clearRagStore()
     console.log("RAG store cleared")
     
     const chunks = simpleChunk(rawText)
     console.log(`Created ${chunks.length} chunks`)
     
-    chunks.forEach((t, i) => ragChunks.push({ id: `c${i}`, text: t }))
-    ragEmbeddings.push(
-      ...ragChunks.map((c) => ({ id: c.id, vector: pseudoEmbed(c.text) }))
-    )
+    const ragChunks = chunks.map((t, i) => ({ id: `c${i}`, text: t }))
+    const ragEmbeddings = ragChunks.map((c) => ({ id: c.id, vector: pseudoEmbed(c.text) }))
     
+    await setRagData(ragChunks, ragEmbeddings)
     console.log(`Successfully processed ${ragChunks.length} chunks`)
 
     return Response.json({ 
