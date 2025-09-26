@@ -2,6 +2,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 import { clearRagStore, setRagData } from "@/lib/rag-store"
+import { extractReadableText, cleanExtractedText } from "@/lib/pdf-text-extractor"
 
 export const maxDuration = 30
 
@@ -195,169 +196,8 @@ export async function POST(req: Request) {
         const page = await pdfDoc.getPage(pageNum)
         const textContent = await page.getTextContent()
         
-        // Improved text extraction with better content filtering
-        const pageText = textContent.items
-          .map((item: any) => {
-            if (item.str && item.str.trim()) {
-              // Filter out PDF metadata and structure
-              const text = item.str.trim()
-              
-              // Skip PDF structure elements - comprehensive filtering
-              if (
-                text.includes('obj') || 
-                text.includes('Type') || 
-                text.includes('Subtype') || 
-                text.includes('Border') || 
-                text.includes('Rect') ||
-                text.includes('FontDescriptor') ||
-                text.includes('BaseFont') ||
-                text.includes('FontName') ||
-                text.includes('FontBBox') ||
-                text.includes('Flags') ||
-                text.includes('ItalicAngle') ||
-                text.includes('Ascent') ||
-                text.includes('Descent') ||
-                text.includes('CapHeight') ||
-                text.includes('StemV') ||
-                text.includes('XHeight') ||
-                text.includes('CharSet') ||
-                text.includes('FontFile') ||
-                text.includes('Length') ||
-                text.includes('Filter') ||
-                text.includes('DecodeParms') ||
-                text.includes('stream') ||
-                text.includes('endstream') ||
-                text.includes('xref') ||
-                text.includes('trailer') ||
-                text.includes('startxref') ||
-                text.includes('%%EOF') ||
-                // Additional PDF structure elements
-                text.includes('XObject') ||
-                text.includes('Image') ||
-                text.includes('ColorSpace') ||
-                text.includes('Color Space') ||
-                text.includes('BitsPerComponent') ||
-                text.includes('Bits Per Component') ||
-                text.includes('Width') ||
-                text.includes('Height') ||
-                text.includes('Skia') ||
-                text.includes('DeviceRGB') ||
-                text.includes('DeviceGray') ||
-                text.includes('DeviceCMYK') ||
-                text.includes('CalRGB') ||
-                text.includes('CalGray') ||
-                text.includes('ICCBased') ||
-                text.includes('Indexed') ||
-                text.includes('Pattern') ||
-                text.includes('Separation') ||
-                text.includes('DeviceN') ||
-                text.includes('Lab') ||
-                text.includes('CMYK') ||
-                text.includes('RGB') ||
-                text.includes('Gray') ||
-                text.includes('Matrix') ||
-                text.includes('BBox') ||
-                text.includes('Resources') ||
-                text.includes('ProcSet') ||
-                text.includes('ExtGState') ||
-                text.includes('Shading') ||
-                text.includes('Pattern') ||
-                text.includes('XObject') ||
-                text.includes('Properties') ||
-                text.includes('MediaBox') ||
-                text.includes('CropBox') ||
-                text.includes('BleedBox') ||
-                text.includes('TrimBox') ||
-                text.includes('ArtBox') ||
-                text.includes('Rotate') ||
-                text.includes('ViewerPreferences') ||
-                text.includes('PageLabels') ||
-                text.includes('Names') ||
-                text.includes('Dests') ||
-                text.includes('ViewerPreferences') ||
-                text.includes('PageLayout') ||
-                text.includes('PageMode') ||
-                text.includes('OpenAction') ||
-                text.includes('AA') ||
-                text.includes('URI') ||
-                text.includes('GoTo') ||
-                text.includes('GoToR') ||
-                text.includes('GoToE') ||
-                text.includes('Launch') ||
-                text.includes('Thread') ||
-                text.includes('Sound') ||
-                text.includes('Movie') ||
-                text.includes('Hide') ||
-                text.includes('SubmitForm') ||
-                text.includes('ResetForm') ||
-                text.includes('ImportData') ||
-                text.includes('JavaScript') ||
-                text.includes('SetOCGState') ||
-                text.includes('Rendition') ||
-                text.includes('Trans') ||
-                text.includes('GoTo3DView') ||
-                text.includes('RichMedia') ||
-                text.includes('FDF') ||
-                text.includes('XFDF') ||
-                text.includes('EmbeddedFile') ||
-                text.includes('Markup') ||
-                text.includes('Popup') ||
-                text.includes('FreeText') ||
-                text.includes('Callout') ||
-                text.includes('Line') ||
-                text.includes('Square') ||
-                text.includes('Circle') ||
-                text.includes('PolyLine') ||
-                text.includes('Polygon') ||
-                text.includes('Highlight') ||
-                text.includes('Underline') ||
-                text.includes('Squiggly') ||
-                text.includes('StrikeOut') ||
-                text.includes('Caret') ||
-                text.includes('Stamp') ||
-                text.includes('Ink') ||
-                text.includes('FileAttachment') ||
-                text.includes('Sound') ||
-                text.includes('Movie') ||
-                text.includes('Widget') ||
-                text.includes('Screen') ||
-                text.includes('PrinterMark') ||
-                text.includes('TrapNet') ||
-                text.includes('Watermark') ||
-                text.includes('3D') ||
-                text.includes('Projection') ||
-                text.includes('RichMedia') ||
-                text.includes('WebCapture') ||
-                text.includes('Measurement') ||
-                text.includes('TrapNet') ||
-                text.includes('Watermark') ||
-                text.includes('3D') ||
-                text.includes('Projection') ||
-                text.includes('RichMedia') ||
-                text.includes('WebCapture') ||
-                text.includes('Measurement') ||
-                text.match(/^\d+\s+\d+\s+obj$/) || // PDF object references
-                text.match(/^\d+\s+\d+\s+R$/) || // PDF references
-                text.match(/^\/[A-Za-z]+$/) || // PDF commands
-                text.match(/^\d+\.\d+\s+\d+\.\d+\s+\d+\.\d+\s+\d+\.\d+$/) || // PDF coordinates
-                text.match(/^\d+\s+\d+\s+\d+\s+\d+$/) || // PDF dimensions
-                text.length < 2 || // Very short strings
-                !/[a-zA-Z]/.test(text) // No letters
-              ) {
-                return ""
-              }
-              
-              // Add spacing based on text positioning
-              const space = item.hasEOL ? '\n' : ' '
-              return text + space
-            }
-            return ""
-          })
-          .filter(text => text.trim().length > 0) // Remove empty items
-          .join("")
-          .replace(/\s+/g, " ") // Normalize whitespace
-          .replace(/\n\s+/g, "\n") // Clean up line breaks
-          .trim()
+        // Use the new focused text extraction approach
+        const pageText = extractReadableText(textContent.items)
         
         if (pageText) {
           fullText += pageText + "\n\n"
@@ -774,36 +614,14 @@ export async function POST(req: Request) {
       }
     }
     
-    // Advanced text cleaning and processing
+    // Use the new focused text cleaning approach
     let rawText = parsed.text || ""
     
     console.log(`Raw extracted text length: ${rawText.length} characters`)
     console.log(`Raw text preview: ${rawText.substring(0, 300)}...`)
     
-    // Clean up the text more carefully
-    rawText = rawText
-      .replace(/[\u0000-\u001F\u007F-\u009F]/g, " ") // Remove control characters
-      .replace(/\\[rn]/g, " ") // Replace escape sequences
-      .replace(/\\[()]/g, "") // Remove escaped parentheses
-      .replace(/[^\w\s.,!?;:()\-@#&]/g, " ") // Keep only readable characters
-      .replace(/\s+/g, " ") // Normalize whitespace
-      .replace(/([.!?])\s*([A-Z])/g, "$1\n$2") // Add line breaks after sentences
-      .replace(/\n\s*\n/g, "\n") // Remove empty lines
-      .replace(/\s+$/gm, "") // Remove trailing spaces from lines
-      .trim()
-    
-    // Additional cleaning for common PDF artifacts and metadata
-    rawText = rawText
-      .replace(/\b\w{1,2}\s+/g, " ") // Remove very short words (likely artifacts)
-      .replace(/\s+([.!?])/g, "$1") // Fix spacing before punctuation
-      .replace(/([a-z])([A-Z])/g, "$1 $2") // Add spaces between camelCase
-      .replace(/\b(obj|Type|Subtype|Border|Rect|FontDescriptor|BaseFont|FontName|FontBBox|Flags|ItalicAngle|Ascent|Descent|CapHeight|StemV|XHeight|CharSet|FontFile|Length|Filter|DecodeParms|stream|endstream|xref|trailer|startxref|%%EOF|XObject|Image|ColorSpace|Color Space|BitsPerComponent|Bits Per Component|Width|Height|Skia|DeviceRGB|DeviceGray|DeviceCMYK|CalRGB|CalGray|ICCBased|Indexed|Pattern|Separation|DeviceN|Lab|CMYK|RGB|Gray|Matrix|BBox|Resources|ProcSet|ExtGState|Shading|Properties|MediaBox|CropBox|BleedBox|TrimBox|ArtBox|Rotate|ViewerPreferences|PageLabels|Names|Dests|PageLayout|PageMode|OpenAction|AA|URI|GoTo|GoToR|GoToE|Launch|Thread|Sound|Movie|Hide|SubmitForm|ResetForm|ImportData|JavaScript|SetOCGState|Rendition|Trans|GoTo3DView|RichMedia|FDF|XFDF|EmbeddedFile|Markup|Popup|FreeText|Callout|Line|Square|Circle|PolyLine|Polygon|Highlight|Underline|Squiggly|StrikeOut|Caret|Stamp|Ink|FileAttachment|Widget|Screen|PrinterMark|TrapNet|Watermark|3D|Projection|WebCapture|Measurement)\b/g, " ") // Remove PDF metadata terms
-      .replace(/\b\d+\s+\d+\s+(obj|R)\b/g, " ") // Remove PDF object references
-      .replace(/\b\/[A-Za-z]+\b/g, " ") // Remove PDF commands
-      .replace(/\b\d+\.\d+\s+\d+\.\d+\s+\d+\.\d+\s+\d+\.\d+\b/g, " ") // Remove PDF coordinates
-      .replace(/\b\d+\s+\d+\s+\d+\s+\d+\b/g, " ") // Remove PDF dimensions
-      .replace(/\s+/g, " ") // Final whitespace normalization
-      .trim()
+    // Clean the text using the new focused approach
+    rawText = cleanExtractedText(rawText)
     
     console.log(`Cleaned text length: ${rawText.length} characters`)
     console.log(`Cleaned text preview: ${rawText.substring(0, 300)}...`)
