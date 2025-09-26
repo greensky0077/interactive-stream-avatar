@@ -3,6 +3,10 @@
  */
 
 export function extractReadableText(textContent: any): string {
+  const allItems = textContent.items.map((item: any) => item.str || "").filter(str => str.trim().length > 0)
+  console.log(`Total text items found: ${allItems.length}`)
+  console.log(`Sample items:`, allItems.slice(0, 5))
+  
   const readableItems = textContent.items
     .map((item: any) => {
       if (!item.str || !item.str.trim()) return ""
@@ -17,6 +21,46 @@ export function extractReadableText(textContent: any): string {
     })
     .filter(text => text.length > 0)
     .join(" ")
+  
+  console.log(`Readable items extracted: ${readableItems.split(' ').length} words`)
+  console.log(`Readable text preview: ${readableItems.substring(0, 200)}...`)
+  
+  // If no readable content found, try a more lenient approach
+  if (readableItems.trim().length === 0) {
+    console.log('No readable content found with strict filtering, trying lenient approach...')
+    const lenientItems = textContent.items
+      .map((item: any) => {
+        if (!item.str || !item.str.trim()) return ""
+        const text = item.str.trim()
+        
+        // More lenient filtering - just exclude obvious PDF metadata
+        if (text.length >= 3 && 
+            /[a-zA-Z]/.test(text) && 
+            !text.includes('obj') && 
+            !text.includes('Type') && 
+            !text.includes('Subtype') && 
+            !text.includes('FontDescriptor') &&
+            !text.includes('BaseFont') &&
+            !text.includes('FontName') &&
+            !text.includes('stream') &&
+            !text.includes('endstream') &&
+            !text.includes('xref') &&
+            !text.includes('trailer') &&
+            !text.match(/^\d+\s+\d+\s+obj$/) &&
+            !text.match(/^\d+\s+\d+\s+R$/) &&
+            !text.match(/^\/[A-Za-z]+$/)) {
+          return text
+        }
+        return ""
+      })
+      .filter(text => text.length > 0)
+      .join(" ")
+    
+    console.log(`Lenient extraction found: ${lenientItems.split(' ').length} words`)
+    console.log(`Lenient text preview: ${lenientItems.substring(0, 200)}...`)
+    
+    return lenientItems
+  }
   
   return readableItems
 }
@@ -76,8 +120,8 @@ function isReadableContent(text: string): boolean {
     return true
   })
   
-  // At least 50% of words should be readable
-  return readableWords.length >= Math.ceil(words.length * 0.5)
+  // At least 30% of words should be readable (reduced from 50% to be less restrictive)
+  return readableWords.length >= Math.ceil(words.length * 0.3)
 }
 
 export function cleanExtractedText(text: string): string {
