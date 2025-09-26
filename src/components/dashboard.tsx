@@ -180,14 +180,14 @@ export function Dashboard() {
             <Share className="size-3.5" />
           </Button>
 
-          <Button variant="outline" size="icon" className="text-sm" asChild>
+          {/* <Button variant="outline" size="icon" className="text-sm" asChild>
             <Link
               href="https://github.com/agmmnn/streaming-avatar-playground"
               target="_blank"
             >
               <GitHubLogoIcon className="size-5" />
             </Link>
-          </Button>
+          </Button> */}
 
           <ModeToggle />
         </header>

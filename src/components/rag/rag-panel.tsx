@@ -59,15 +59,23 @@ export function RagPanel() {
     setError("")
     setAnswer("")
     try {
+      console.log(`Sending query: "${query}"`)
       const res = await fetch("/api/rag/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data?.error || "query failed")
+      console.log("Query response:", data)
+      
+      if (!res.ok) {
+        console.error("Query failed:", data)
+        throw new Error(data?.error || `Query failed (${res.status})`)
+      }
+      
       setAnswer(data.text)
     } catch (e: any) {
+      console.error("Query error:", e)
       setError(e?.message || "query failed")
     }
   }
