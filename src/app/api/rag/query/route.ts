@@ -4,7 +4,7 @@ import { generateText } from "ai"
 
 export const maxDuration = 30
 
-async function search(queryVec: number[], ragEmbeddings: any[], ragChunks: any[], topK = 5) {
+async function search(queryVec: number[], ragEmbeddings: any[], ragChunks: any[], queryText: string, topK = 5) {
   // First try semantic search
   const scored = ragEmbeddings.map((e) => ({ id: e.id, score: cosineSimilarity(queryVec, e.vector) }))
   scored.sort((a, b) => b.score - a.score)
@@ -14,7 +14,7 @@ async function search(queryVec: number[], ragEmbeddings: any[], ragChunks: any[]
   // If semantic search doesn't find good results, try keyword search
   if (semanticResults.length === 0 || semanticResults.every(chunk => !chunk.text.trim())) {
     console.log('Semantic search failed, trying keyword search')
-    const queryWords = String(query).toLowerCase().split(/\s+/).filter(w => w.length > 2)
+    const queryWords = String(queryText).toLowerCase().split(/\s+/).filter(w => w.length > 2)
     
     const keywordScored = ragChunks.map(chunk => {
       const chunkText = chunk.text.toLowerCase()
@@ -128,7 +128,7 @@ export async function POST(req: Request) {
     console.log(`Available chunks: ${ragChunks.length}, embeddings: ${ragEmbeddings.length}`)
 
     const qv = pseudoEmbed(String(query))
-    const top = await search(qv, ragEmbeddings, ragChunks, 5)
+    const top = await search(qv, ragEmbeddings, ragChunks, String(query), 5)
     console.log(`Found ${top.length} relevant chunks`)
     
     // If no good matches found, use first few chunks as fallback
