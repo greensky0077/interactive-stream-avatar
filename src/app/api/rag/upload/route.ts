@@ -1,7 +1,7 @@
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-import { clearRagStore, setRagData } from "@/lib/rag-store"
+import { clearRagStore, setRagData, getRagChunks, getRagEmbeddings } from "@/lib/rag-store"
 import { extractReadableText, cleanExtractedText } from "@/lib/pdf-text-extractor"
 
 export const maxDuration = 30
@@ -647,6 +647,15 @@ export async function POST(req: Request) {
     await setRagData(ragChunks, ragEmbeddings)
     console.log(`Successfully processed ${ragChunks.length} chunks`)
     console.log(`Sample chunks:`, ragChunks.slice(0, 3).map(c => ({ id: c.id, textPreview: c.text.substring(0, 150) })))
+    
+    // Verify the data was saved
+    const savedChunks = await getRagChunks()
+    const savedEmbeddings = await getRagEmbeddings()
+    console.log(`Verification - Saved chunks: ${savedChunks.length}, embeddings: ${savedEmbeddings.length}`)
+    console.log(`Global store after save: ${!!global.__ragStore}`)
+    if (global.__ragStore) {
+      console.log(`Global store timestamp after save: ${global.__ragStore.timestamp}`)
+    }
 
     return Response.json({ 
       ok: true, 

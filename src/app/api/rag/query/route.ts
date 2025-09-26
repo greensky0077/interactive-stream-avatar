@@ -119,12 +119,23 @@ export async function POST(req: Request) {
     const { query } = await req.json()
     if (!query) return Response.json({ error: "query required" }, { status: 400 })
     
+    console.log(`RAG query received: "${query}"`)
+    
     const ragChunks = await getRagChunks()
     const ragEmbeddings = await getRagEmbeddings()
     
-    if (ragEmbeddings.length === 0) return Response.json({ error: "index empty" }, { status: 400 })
+    console.log(`RAG store status: ${ragChunks.length} chunks, ${ragEmbeddings.length} embeddings`)
+    console.log(`Global store exists: ${!!global.__ragStore}`)
+    if (global.__ragStore) {
+      console.log(`Global store timestamp: ${global.__ragStore.timestamp}`)
+      console.log(`Global store age: ${Date.now() - global.__ragStore.timestamp}ms`)
+    }
+    
+    if (ragEmbeddings.length === 0) {
+      console.log("ERROR: No embeddings found in RAG store")
+      return Response.json({ error: "index empty" }, { status: 400 })
+    }
 
-    console.log(`RAG query received: "${query}"`)
     console.log(`Available chunks: ${ragChunks.length}, embeddings: ${ragEmbeddings.length}`)
 
     const qv = pseudoEmbed(String(query))
