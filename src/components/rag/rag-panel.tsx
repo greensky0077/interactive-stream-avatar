@@ -15,15 +15,41 @@ export function RagPanel() {
     setUploading(true)
     setError("")
     setAnswer("")
+    setChunks(null)
+    
     try {
+      // Validate file before upload
+      if (file.type !== "application/pdf") {
+        throw new Error(`Invalid file type. Please select a PDF file. (Selected: ${file.type})`)
+      }
+      
+      if (file.size > 10 * 1024 * 1024) {
+        throw new Error("File too large. Maximum size is 10MB.")
+      }
+      
+      console.log(`Uploading file: ${file.name} (${file.size} bytes)`)
+      
       const form = new FormData()
       form.append("file", file)
-      const res = await fetch("/api/rag/upload", { method: "POST", body: form })
+      
+      const res = await fetch("/api/rag/upload", { 
+        method: "POST", 
+        body: form 
+      })
+      
       const data = await res.json()
-      if (!res.ok) throw new Error(data?.error || "upload failed")
+      
+      if (!res.ok) {
+        console.error("Upload failed:", data)
+        throw new Error(data?.error || `Upload failed (${res.status})`)
+      }
+      
+      console.log("Upload successful:", data)
       setChunks(data.chunks)
+      
     } catch (e: any) {
-      setError(e?.message || "upload failed")
+      console.error("Upload error:", e)
+      setError(e?.message || "Upload failed")
     } finally {
       setUploading(false)
     }
@@ -59,10 +85,19 @@ export function RagPanel() {
             const f = e.target.files?.[0]
             if (f) handleUpload(f)
           }}
+          disabled={uploading}
         />
-        {uploading && <p className="text-xs text-muted-foreground">Processing…</p>}
+        {uploading && (
+          <div className="text-xs text-muted-foreground">
+            <p>Processing PDF...</p>
+            <p>Please wait while we extract and index the content.</p>
+          </div>
+        )}
         {typeof chunks === "number" && (
-          <p className="text-xs">Indexed chunks: {chunks}</p>
+          <div className="text-xs text-green-600">
+            <p>✅ PDF uploaded successfully!</p>
+            <p>Indexed {chunks} text chunks</p>
+          </div>
         )}
       </div>
       <div className="grid gap-2">
