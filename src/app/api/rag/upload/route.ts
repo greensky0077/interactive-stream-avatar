@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic"
 
 import { clearRagStore, setRagData, getRagChunks, getRagEmbeddings } from "@/lib/rag-store"
 import { extractReadableText, cleanExtractedText } from "@/lib/pdf-text-extractor"
+import { ragMemoryCache } from "@/lib/rag-memory-cache"
 
 export const maxDuration = 30
 
@@ -645,6 +646,10 @@ export async function POST(req: Request) {
     const ragEmbeddings = ragChunks.map((c) => ({ id: c.id, vector: pseudoEmbed(c.text) }))
     
     await setRagData(ragChunks, ragEmbeddings)
+    
+    // Also save to memory cache as backup
+    ragMemoryCache.setData(ragChunks, ragEmbeddings)
+    
     console.log(`Successfully processed ${ragChunks.length} chunks`)
     console.log(`Sample chunks:`, ragChunks.slice(0, 3).map(c => ({ id: c.id, textPreview: c.text.substring(0, 150) })))
     
@@ -652,6 +657,7 @@ export async function POST(req: Request) {
     const savedChunks = await getRagChunks()
     const savedEmbeddings = await getRagEmbeddings()
     console.log(`Verification - Saved chunks: ${savedChunks.length}, embeddings: ${savedEmbeddings.length}`)
+    console.log(`Memory cache: ${ragMemoryCache.hasData() ? 'has data' : 'empty'}`)
     console.log(`Global store after save: ${!!global.__ragStore}`)
     if (global.__ragStore) {
       console.log(`Global store timestamp after save: ${global.__ragStore.timestamp}`)

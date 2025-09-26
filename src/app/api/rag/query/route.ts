@@ -1,6 +1,7 @@
 import { getRagChunks, getRagEmbeddings, cosineSimilarity } from "@/lib/rag-store"
 import { openai } from "@ai-sdk/openai"
 import { generateText } from "ai"
+import { ragMemoryCache } from "@/lib/rag-memory-cache"
 
 export const maxDuration = 30
 
@@ -131,8 +132,79 @@ export async function POST(req: Request) {
       console.log(`Global store age: ${Date.now() - global.__ragStore.timestamp}ms`)
     }
     
+    // If no embeddings found, try to get data from memory cache
     if (ragEmbeddings.length === 0) {
-      console.log("ERROR: No embeddings found in RAG store")
+      console.log("ERROR: No embeddings found in RAG store, trying memory cache...")
+      
+      if (ragMemoryCache.hasData()) {
+        console.log("Using memory cache data")
+        const memoryChunks = ragMemoryCache.getChunks()
+        const memoryEmbeddings = ragMemoryCache.getEmbeddings()
+        
+        console.log(`Memory cache data: ${memoryChunks.length} chunks, ${memoryEmbeddings.length} embeddings`)
+        
+        const qv = pseudoEmbed(String(query))
+        const top = await search(qv, memoryEmbeddings, memoryChunks, String(query), 5)
+        console.log(`Found ${top.length} relevant chunks from memory cache`)
+        
+        const context = top.map((c) => c.text).join("\n\n")
+        console.log(`Context length: ${context.length} characters`)
+        
+        const result = await generateText({
+          model: openai("gpt-4o-mini"),
+          prompt: `You are a helpful assistant. Answer the user's question based on the provided context from a PDF document.
+
+Context from PDF:
+${context}
+
+User Question: ${query}
+
+Please provide a helpful and accurate answer based on the context. If the context doesn't contain enough information to answer the question, say so politely.`,
+        })
+        
+        return Response.json({ answer: result.text })
+      }
+      
+      // Try to get data from the debug endpoint as a backup
+      try {
+        const debugResponse = await fetch(`${process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'}/api/rag/debug`)
+        if (debugResponse.ok) {
+          const debugData = await debugResponse.json()
+          console.log(`Backup data found: ${debugData.chunks?.length || 0} chunks`)
+          
+          if (debugData.chunks && debugData.chunks.length > 0) {
+            // Use the backup data directly
+            const backupChunks = debugData.chunks
+            const backupEmbeddings = backupChunks.map((c: any) => ({ id: c.id, vector: pseudoEmbed(c.text) }))
+            
+            console.log(`Using backup data: ${backupChunks.length} chunks, ${backupEmbeddings.length} embeddings`)
+            
+            const qv = pseudoEmbed(String(query))
+            const top = await search(qv, backupEmbeddings, backupChunks, String(query), 5)
+            console.log(`Found ${top.length} relevant chunks from backup`)
+            
+            const context = top.map((c) => c.text).join("\n\n")
+            console.log(`Context length: ${context.length} characters`)
+            
+            const result = await generateText({
+              model: openai("gpt-4o-mini"),
+              prompt: `You are a helpful assistant. Answer the user's question based on the provided context from a PDF document.
+
+Context from PDF:
+${context}
+
+User Question: ${query}
+
+Please provide a helpful and accurate answer based on the context. If the context doesn't contain enough information to answer the question, say so politely.`,
+            })
+            
+            return Response.json({ answer: result.text })
+          }
+        }
+      } catch (backupError) {
+        console.error("Backup data retrieval failed:", backupError)
+      }
+      
       return Response.json({ error: "index empty" }, { status: 400 })
     }
 
