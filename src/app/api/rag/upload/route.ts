@@ -2,7 +2,7 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 import { clearRagStore, setRagData, getRagChunks, getRagEmbeddings } from "@/lib/rag-store"
-import { extractReadableText, cleanExtractedText } from "@/lib/pdf-text-extractor"
+import { extractReadableText, cleanExtractedText, extractRawText } from "@/lib/pdf-text-extractor"
 import { ragMemoryCache } from "@/lib/rag-memory-cache"
 
 export const maxDuration = 30
@@ -197,8 +197,10 @@ export async function POST(req: Request) {
         const page = await pdfDoc.getPage(pageNum)
         const textContent = await page.getTextContent()
         
-        // Use the new focused text extraction approach
-        const pageText = extractReadableText(textContent.items)
+        // Use the new focused text extraction approach with fallbacks
+        const strictText = extractReadableText(textContent.items)
+        const rawFallback = strictText.trim().length === 0 ? extractRawText(textContent) : ""
+        const pageText = strictText.trim().length >= rawFallback.trim().length ? strictText : rawFallback
         
         if (pageText) {
           fullText += pageText + "\n\n"

@@ -65,6 +65,22 @@ export function extractReadableText(textContent: any): string {
   return readableItems
 }
 
+// Extremely permissive fallback: join all item strings with minimal cleanup
+export function extractRawText(textContent: any): string {
+  try {
+    const raw = (textContent.items || [])
+      .map((item: any) => String(item.str || "").trim())
+      .filter((s: string) => s.length > 0)
+      .join(" ")
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+    return raw
+  } catch {
+    return ""
+  }
+}
+
 function isReadableContent(text: string): boolean {
   // Must contain letters
   if (!/[a-zA-Z]/.test(text)) return false
