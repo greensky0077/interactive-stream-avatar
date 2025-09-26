@@ -221,7 +221,7 @@ export function StartStop() {
       if (worker) {
         worker.postMessage({
           type: 'START_KEEPALIVE',
-          data: { sessionId: sessionData.sessionId, interval: 5000 }
+          data: { sessionId: sessionData.sessionId, interval: 10000 } // 10 seconds - reduce credit consumption
         })
         setDebug("Keep-alive worker started")
       } else {
@@ -246,13 +246,13 @@ export function StartStop() {
       }
     })
 
-    // Set up interval for regular keep-alive
+    // Set up interval for regular keep-alive (optimized for free tier)
     keepAliveIntervalRef.current = setInterval(async () => {
       const success = await sendKeepAliveRequest()
       if (!success) {
         setDebug("Fallback keep-alive failed, session may expire")
       }
-    }, 5000)
+    }, 10000) // 10 seconds - reduce credit consumption
   }
 
   // Send keep-alive request
@@ -415,6 +415,8 @@ export function StartStop() {
       // Log token info for debugging
       if (data.data?.data?.token) {
         setDebug(`Token obtained successfully (${data.tokenInfo?.length || 'unknown'} chars)`)
+        setDebug("⚠️ FREE TIER LIMITATION: Sessions may expire due to credit limits")
+        setDebug("💡 Consider upgrading to Pro tier ($99/mo) for stable sessions")
       } else {
         throw new Error("No token received from API")
       }
@@ -426,17 +428,17 @@ export function StartStop() {
         })
       )
       
-      // Start session with optimized configuration
-        const payload: any = {
-          newSessionRequest: {
-          quality: quality,
-            avatarName: avatarId,
-          activity_idle_timeout: 120, // 2 minutes - very conservative for testing
-          // Add additional session configuration
-          enable_avatar_audio: true,
-          enable_avatar_video: true,
-        },
-      }
+          // Start session with FREE TIER optimized configuration
+          const payload: any = {
+            newSessionRequest: {
+              quality: quality,
+              avatarName: avatarId,
+              activity_idle_timeout: 30, // 30 seconds - optimized for free tier limits
+              // Minimal configuration to preserve credits
+              enable_avatar_audio: true,
+              enable_avatar_video: true,
+            },
+          }
 
       const res = await avatarRef.current.createStartAvatar(payload, setDebug)
       
