@@ -202,7 +202,7 @@ export async function POST(req: Request) {
               // Filter out PDF metadata and structure
               const text = item.str.trim()
               
-              // Skip PDF structure elements
+              // Skip PDF structure elements - comprehensive filtering
               if (
                 text.includes('obj') || 
                 text.includes('Type') || 
@@ -231,9 +231,116 @@ export async function POST(req: Request) {
                 text.includes('trailer') ||
                 text.includes('startxref') ||
                 text.includes('%%EOF') ||
+                // Additional PDF structure elements
+                text.includes('XObject') ||
+                text.includes('Image') ||
+                text.includes('ColorSpace') ||
+                text.includes('Color Space') ||
+                text.includes('BitsPerComponent') ||
+                text.includes('Bits Per Component') ||
+                text.includes('Width') ||
+                text.includes('Height') ||
+                text.includes('Skia') ||
+                text.includes('DeviceRGB') ||
+                text.includes('DeviceGray') ||
+                text.includes('DeviceCMYK') ||
+                text.includes('CalRGB') ||
+                text.includes('CalGray') ||
+                text.includes('ICCBased') ||
+                text.includes('Indexed') ||
+                text.includes('Pattern') ||
+                text.includes('Separation') ||
+                text.includes('DeviceN') ||
+                text.includes('Lab') ||
+                text.includes('CMYK') ||
+                text.includes('RGB') ||
+                text.includes('Gray') ||
+                text.includes('Matrix') ||
+                text.includes('BBox') ||
+                text.includes('Resources') ||
+                text.includes('ProcSet') ||
+                text.includes('ExtGState') ||
+                text.includes('Shading') ||
+                text.includes('Pattern') ||
+                text.includes('XObject') ||
+                text.includes('Properties') ||
+                text.includes('MediaBox') ||
+                text.includes('CropBox') ||
+                text.includes('BleedBox') ||
+                text.includes('TrimBox') ||
+                text.includes('ArtBox') ||
+                text.includes('Rotate') ||
+                text.includes('ViewerPreferences') ||
+                text.includes('PageLabels') ||
+                text.includes('Names') ||
+                text.includes('Dests') ||
+                text.includes('ViewerPreferences') ||
+                text.includes('PageLayout') ||
+                text.includes('PageMode') ||
+                text.includes('OpenAction') ||
+                text.includes('AA') ||
+                text.includes('URI') ||
+                text.includes('GoTo') ||
+                text.includes('GoToR') ||
+                text.includes('GoToE') ||
+                text.includes('Launch') ||
+                text.includes('Thread') ||
+                text.includes('Sound') ||
+                text.includes('Movie') ||
+                text.includes('Hide') ||
+                text.includes('SubmitForm') ||
+                text.includes('ResetForm') ||
+                text.includes('ImportData') ||
+                text.includes('JavaScript') ||
+                text.includes('SetOCGState') ||
+                text.includes('Rendition') ||
+                text.includes('Trans') ||
+                text.includes('GoTo3DView') ||
+                text.includes('RichMedia') ||
+                text.includes('FDF') ||
+                text.includes('XFDF') ||
+                text.includes('EmbeddedFile') ||
+                text.includes('Markup') ||
+                text.includes('Popup') ||
+                text.includes('FreeText') ||
+                text.includes('Callout') ||
+                text.includes('Line') ||
+                text.includes('Square') ||
+                text.includes('Circle') ||
+                text.includes('PolyLine') ||
+                text.includes('Polygon') ||
+                text.includes('Highlight') ||
+                text.includes('Underline') ||
+                text.includes('Squiggly') ||
+                text.includes('StrikeOut') ||
+                text.includes('Caret') ||
+                text.includes('Stamp') ||
+                text.includes('Ink') ||
+                text.includes('FileAttachment') ||
+                text.includes('Sound') ||
+                text.includes('Movie') ||
+                text.includes('Widget') ||
+                text.includes('Screen') ||
+                text.includes('PrinterMark') ||
+                text.includes('TrapNet') ||
+                text.includes('Watermark') ||
+                text.includes('3D') ||
+                text.includes('Projection') ||
+                text.includes('RichMedia') ||
+                text.includes('WebCapture') ||
+                text.includes('Measurement') ||
+                text.includes('TrapNet') ||
+                text.includes('Watermark') ||
+                text.includes('3D') ||
+                text.includes('Projection') ||
+                text.includes('RichMedia') ||
+                text.includes('WebCapture') ||
+                text.includes('Measurement') ||
                 text.match(/^\d+\s+\d+\s+obj$/) || // PDF object references
                 text.match(/^\d+\s+\d+\s+R$/) || // PDF references
                 text.match(/^\/[A-Za-z]+$/) || // PDF commands
+                text.match(/^\d+\.\d+\s+\d+\.\d+\s+\d+\.\d+\s+\d+\.\d+$/) || // PDF coordinates
+                text.match(/^\d+\s+\d+\s+\d+\s+\d+$/) || // PDF dimensions
                 text.length < 2 || // Very short strings
                 !/[a-zA-Z]/.test(text) // No letters
               ) {
@@ -278,7 +385,7 @@ export async function POST(req: Request) {
           const textFromObjects = textMatches
             .map(match => match.replace(/^BT\s*/, '').replace(/\s*ET$/, ''))
             .filter(text => {
-              // Filter out PDF metadata
+              // Filter out PDF metadata - comprehensive filtering
               const cleanText = text.trim()
               return cleanText.length > 2 && 
                      /[a-zA-Z]/.test(cleanText) && 
@@ -309,9 +416,102 @@ export async function POST(req: Request) {
                      !cleanText.includes('trailer') &&
                      !cleanText.includes('startxref') &&
                      !cleanText.includes('%%EOF') &&
+                     !cleanText.includes('XObject') &&
+                     !cleanText.includes('Image') &&
+                     !cleanText.includes('ColorSpace') &&
+                     !cleanText.includes('Color Space') &&
+                     !cleanText.includes('BitsPerComponent') &&
+                     !cleanText.includes('Bits Per Component') &&
+                     !cleanText.includes('Width') &&
+                     !cleanText.includes('Height') &&
+                     !cleanText.includes('Skia') &&
+                     !cleanText.includes('DeviceRGB') &&
+                     !cleanText.includes('DeviceGray') &&
+                     !cleanText.includes('DeviceCMYK') &&
+                     !cleanText.includes('CalRGB') &&
+                     !cleanText.includes('CalGray') &&
+                     !cleanText.includes('ICCBased') &&
+                     !cleanText.includes('Indexed') &&
+                     !cleanText.includes('Pattern') &&
+                     !cleanText.includes('Separation') &&
+                     !cleanText.includes('DeviceN') &&
+                     !cleanText.includes('Lab') &&
+                     !cleanText.includes('CMYK') &&
+                     !cleanText.includes('RGB') &&
+                     !cleanText.includes('Gray') &&
+                     !cleanText.includes('Matrix') &&
+                     !cleanText.includes('BBox') &&
+                     !cleanText.includes('Resources') &&
+                     !cleanText.includes('ProcSet') &&
+                     !cleanText.includes('ExtGState') &&
+                     !cleanText.includes('Shading') &&
+                     !cleanText.includes('Properties') &&
+                     !cleanText.includes('MediaBox') &&
+                     !cleanText.includes('CropBox') &&
+                     !cleanText.includes('BleedBox') &&
+                     !cleanText.includes('TrimBox') &&
+                     !cleanText.includes('ArtBox') &&
+                     !cleanText.includes('Rotate') &&
+                     !cleanText.includes('ViewerPreferences') &&
+                     !cleanText.includes('PageLabels') &&
+                     !cleanText.includes('Names') &&
+                     !cleanText.includes('Dests') &&
+                     !cleanText.includes('PageLayout') &&
+                     !cleanText.includes('PageMode') &&
+                     !cleanText.includes('OpenAction') &&
+                     !cleanText.includes('AA') &&
+                     !cleanText.includes('URI') &&
+                     !cleanText.includes('GoTo') &&
+                     !cleanText.includes('GoToR') &&
+                     !cleanText.includes('GoToE') &&
+                     !cleanText.includes('Launch') &&
+                     !cleanText.includes('Thread') &&
+                     !cleanText.includes('Sound') &&
+                     !cleanText.includes('Movie') &&
+                     !cleanText.includes('Hide') &&
+                     !cleanText.includes('SubmitForm') &&
+                     !cleanText.includes('ResetForm') &&
+                     !cleanText.includes('ImportData') &&
+                     !cleanText.includes('JavaScript') &&
+                     !cleanText.includes('SetOCGState') &&
+                     !cleanText.includes('Rendition') &&
+                     !cleanText.includes('Trans') &&
+                     !cleanText.includes('GoTo3DView') &&
+                     !cleanText.includes('RichMedia') &&
+                     !cleanText.includes('FDF') &&
+                     !cleanText.includes('XFDF') &&
+                     !cleanText.includes('EmbeddedFile') &&
+                     !cleanText.includes('Markup') &&
+                     !cleanText.includes('Popup') &&
+                     !cleanText.includes('FreeText') &&
+                     !cleanText.includes('Callout') &&
+                     !cleanText.includes('Line') &&
+                     !cleanText.includes('Square') &&
+                     !cleanText.includes('Circle') &&
+                     !cleanText.includes('PolyLine') &&
+                     !cleanText.includes('Polygon') &&
+                     !cleanText.includes('Highlight') &&
+                     !cleanText.includes('Underline') &&
+                     !cleanText.includes('Squiggly') &&
+                     !cleanText.includes('StrikeOut') &&
+                     !cleanText.includes('Caret') &&
+                     !cleanText.includes('Stamp') &&
+                     !cleanText.includes('Ink') &&
+                     !cleanText.includes('FileAttachment') &&
+                     !cleanText.includes('Widget') &&
+                     !cleanText.includes('Screen') &&
+                     !cleanText.includes('PrinterMark') &&
+                     !cleanText.includes('TrapNet') &&
+                     !cleanText.includes('Watermark') &&
+                     !cleanText.includes('3D') &&
+                     !cleanText.includes('Projection') &&
+                     !cleanText.includes('WebCapture') &&
+                     !cleanText.includes('Measurement') &&
                      !cleanText.match(/^\d+\s+\d+\s+obj$/) &&
                      !cleanText.match(/^\d+\s+\d+\s+R$/) &&
-                     !cleanText.match(/^\/[A-Za-z]+$/)
+                     !cleanText.match(/^\/[A-Za-z]+$/) &&
+                     !cleanText.match(/^\d+\.\d+\s+\d+\.\d+\s+\d+\.\d+\s+\d+\.\d+$/) &&
+                     !cleanText.match(/^\d+\s+\d+\s+\d+\s+\d+$/)
             })
             .join(' ')
             .replace(/\\[rn]/g, ' ')
@@ -362,9 +562,102 @@ export async function POST(req: Request) {
                      !cleanText.includes('trailer') &&
                      !cleanText.includes('startxref') &&
                      !cleanText.includes('%%EOF') &&
+                     !cleanText.includes('XObject') &&
+                     !cleanText.includes('Image') &&
+                     !cleanText.includes('ColorSpace') &&
+                     !cleanText.includes('Color Space') &&
+                     !cleanText.includes('BitsPerComponent') &&
+                     !cleanText.includes('Bits Per Component') &&
+                     !cleanText.includes('Width') &&
+                     !cleanText.includes('Height') &&
+                     !cleanText.includes('Skia') &&
+                     !cleanText.includes('DeviceRGB') &&
+                     !cleanText.includes('DeviceGray') &&
+                     !cleanText.includes('DeviceCMYK') &&
+                     !cleanText.includes('CalRGB') &&
+                     !cleanText.includes('CalGray') &&
+                     !cleanText.includes('ICCBased') &&
+                     !cleanText.includes('Indexed') &&
+                     !cleanText.includes('Pattern') &&
+                     !cleanText.includes('Separation') &&
+                     !cleanText.includes('DeviceN') &&
+                     !cleanText.includes('Lab') &&
+                     !cleanText.includes('CMYK') &&
+                     !cleanText.includes('RGB') &&
+                     !cleanText.includes('Gray') &&
+                     !cleanText.includes('Matrix') &&
+                     !cleanText.includes('BBox') &&
+                     !cleanText.includes('Resources') &&
+                     !cleanText.includes('ProcSet') &&
+                     !cleanText.includes('ExtGState') &&
+                     !cleanText.includes('Shading') &&
+                     !cleanText.includes('Properties') &&
+                     !cleanText.includes('MediaBox') &&
+                     !cleanText.includes('CropBox') &&
+                     !cleanText.includes('BleedBox') &&
+                     !cleanText.includes('TrimBox') &&
+                     !cleanText.includes('ArtBox') &&
+                     !cleanText.includes('Rotate') &&
+                     !cleanText.includes('ViewerPreferences') &&
+                     !cleanText.includes('PageLabels') &&
+                     !cleanText.includes('Names') &&
+                     !cleanText.includes('Dests') &&
+                     !cleanText.includes('PageLayout') &&
+                     !cleanText.includes('PageMode') &&
+                     !cleanText.includes('OpenAction') &&
+                     !cleanText.includes('AA') &&
+                     !cleanText.includes('URI') &&
+                     !cleanText.includes('GoTo') &&
+                     !cleanText.includes('GoToR') &&
+                     !cleanText.includes('GoToE') &&
+                     !cleanText.includes('Launch') &&
+                     !cleanText.includes('Thread') &&
+                     !cleanText.includes('Sound') &&
+                     !cleanText.includes('Movie') &&
+                     !cleanText.includes('Hide') &&
+                     !cleanText.includes('SubmitForm') &&
+                     !cleanText.includes('ResetForm') &&
+                     !cleanText.includes('ImportData') &&
+                     !cleanText.includes('JavaScript') &&
+                     !cleanText.includes('SetOCGState') &&
+                     !cleanText.includes('Rendition') &&
+                     !cleanText.includes('Trans') &&
+                     !cleanText.includes('GoTo3DView') &&
+                     !cleanText.includes('RichMedia') &&
+                     !cleanText.includes('FDF') &&
+                     !cleanText.includes('XFDF') &&
+                     !cleanText.includes('EmbeddedFile') &&
+                     !cleanText.includes('Markup') &&
+                     !cleanText.includes('Popup') &&
+                     !cleanText.includes('FreeText') &&
+                     !cleanText.includes('Callout') &&
+                     !cleanText.includes('Line') &&
+                     !cleanText.includes('Square') &&
+                     !cleanText.includes('Circle') &&
+                     !cleanText.includes('PolyLine') &&
+                     !cleanText.includes('Polygon') &&
+                     !cleanText.includes('Highlight') &&
+                     !cleanText.includes('Underline') &&
+                     !cleanText.includes('Squiggly') &&
+                     !cleanText.includes('StrikeOut') &&
+                     !cleanText.includes('Caret') &&
+                     !cleanText.includes('Stamp') &&
+                     !cleanText.includes('Ink') &&
+                     !cleanText.includes('FileAttachment') &&
+                     !cleanText.includes('Widget') &&
+                     !cleanText.includes('Screen') &&
+                     !cleanText.includes('PrinterMark') &&
+                     !cleanText.includes('TrapNet') &&
+                     !cleanText.includes('Watermark') &&
+                     !cleanText.includes('3D') &&
+                     !cleanText.includes('Projection') &&
+                     !cleanText.includes('WebCapture') &&
+                     !cleanText.includes('Measurement') &&
                      !cleanText.match(/^\d+\s+\d+\s+obj$/) &&
                      !cleanText.match(/^\d+\s+\d+\s+R$/) &&
-                     !cleanText.match(/^\/[A-Za-z]+$/)
+                     !cleanText.match(/^\/[A-Za-z]+$/) &&
+                     !cleanText.match(/^\d+\.\d+\s+\d+\.\d+\s+\d+\.\d+\s+\d+\.\d+$/) &&
+                     !cleanText.match(/^\d+\s+\d+\s+\d+\s+\d+$/)
             })
             .join(' ')
             .replace(/\\[rn]/g, ' ')
@@ -504,9 +797,11 @@ export async function POST(req: Request) {
       .replace(/\b\w{1,2}\s+/g, " ") // Remove very short words (likely artifacts)
       .replace(/\s+([.!?])/g, "$1") // Fix spacing before punctuation
       .replace(/([a-z])([A-Z])/g, "$1 $2") // Add spaces between camelCase
-      .replace(/\b(obj|Type|Subtype|Border|Rect|FontDescriptor|BaseFont|FontName|FontBBox|Flags|ItalicAngle|Ascent|Descent|CapHeight|StemV|XHeight|CharSet|FontFile|Length|Filter|DecodeParms|stream|endstream|xref|trailer|startxref|%%EOF)\b/g, " ") // Remove PDF metadata terms
+      .replace(/\b(obj|Type|Subtype|Border|Rect|FontDescriptor|BaseFont|FontName|FontBBox|Flags|ItalicAngle|Ascent|Descent|CapHeight|StemV|XHeight|CharSet|FontFile|Length|Filter|DecodeParms|stream|endstream|xref|trailer|startxref|%%EOF|XObject|Image|ColorSpace|Color Space|BitsPerComponent|Bits Per Component|Width|Height|Skia|DeviceRGB|DeviceGray|DeviceCMYK|CalRGB|CalGray|ICCBased|Indexed|Pattern|Separation|DeviceN|Lab|CMYK|RGB|Gray|Matrix|BBox|Resources|ProcSet|ExtGState|Shading|Properties|MediaBox|CropBox|BleedBox|TrimBox|ArtBox|Rotate|ViewerPreferences|PageLabels|Names|Dests|PageLayout|PageMode|OpenAction|AA|URI|GoTo|GoToR|GoToE|Launch|Thread|Sound|Movie|Hide|SubmitForm|ResetForm|ImportData|JavaScript|SetOCGState|Rendition|Trans|GoTo3DView|RichMedia|FDF|XFDF|EmbeddedFile|Markup|Popup|FreeText|Callout|Line|Square|Circle|PolyLine|Polygon|Highlight|Underline|Squiggly|StrikeOut|Caret|Stamp|Ink|FileAttachment|Widget|Screen|PrinterMark|TrapNet|Watermark|3D|Projection|WebCapture|Measurement)\b/g, " ") // Remove PDF metadata terms
       .replace(/\b\d+\s+\d+\s+(obj|R)\b/g, " ") // Remove PDF object references
       .replace(/\b\/[A-Za-z]+\b/g, " ") // Remove PDF commands
+      .replace(/\b\d+\.\d+\s+\d+\.\d+\s+\d+\.\d+\s+\d+\.\d+\b/g, " ") // Remove PDF coordinates
+      .replace(/\b\d+\s+\d+\s+\d+\s+\d+\b/g, " ") // Remove PDF dimensions
       .replace(/\s+/g, " ") // Final whitespace normalization
       .trim()
     
