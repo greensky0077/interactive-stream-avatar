@@ -396,22 +396,27 @@ export function StartStop() {
     isStartingRef.current = true
 
     try {
-      // Get token
+      // Get token with enhanced error handling
       const response = await fetch("/api/grab", {
         method: "POST",
         headers: {
           "content-type": "application/json",
         },
       })
-      if (!response.ok) {
-        throw new Error(`Failed to fetch token: ${response.statusText}`)
-      }
+      
       const data = await response.json()
       
+      if (!response.ok) {
+        const errorMsg = data.error || `Failed to fetch token: ${response.statusText}`
+        const details = data.details || "Unknown error"
+        throw new Error(`${errorMsg}. ${details}`)
+      }
+      
       // Log token info for debugging
-      setDebug(`Token obtained: ${data.data?.data?.token ? 'Success' : 'Failed'}`)
       if (data.data?.data?.token) {
-        setDebug(`Token length: ${data.data.data.token.length} characters`)
+        setDebug(`Token obtained successfully (${data.tokenInfo?.length || 'unknown'} chars)`)
+      } else {
+        throw new Error("No token received from API")
       }
 
       // Create avatar API instance
