@@ -195,16 +195,58 @@ export async function POST(req: Request) {
         const page = await pdfDoc.getPage(pageNum)
         const textContent = await page.getTextContent()
         
-        // Improved text extraction with better structure preservation
+        // Improved text extraction with better content filtering
         const pageText = textContent.items
           .map((item: any) => {
             if (item.str && item.str.trim()) {
+              // Filter out PDF metadata and structure
+              const text = item.str.trim()
+              
+              // Skip PDF structure elements
+              if (
+                text.includes('obj') || 
+                text.includes('Type') || 
+                text.includes('Subtype') || 
+                text.includes('Border') || 
+                text.includes('Rect') ||
+                text.includes('FontDescriptor') ||
+                text.includes('BaseFont') ||
+                text.includes('FontName') ||
+                text.includes('FontBBox') ||
+                text.includes('Flags') ||
+                text.includes('ItalicAngle') ||
+                text.includes('Ascent') ||
+                text.includes('Descent') ||
+                text.includes('CapHeight') ||
+                text.includes('StemV') ||
+                text.includes('XHeight') ||
+                text.includes('CharSet') ||
+                text.includes('FontFile') ||
+                text.includes('Length') ||
+                text.includes('Filter') ||
+                text.includes('DecodeParms') ||
+                text.includes('stream') ||
+                text.includes('endstream') ||
+                text.includes('xref') ||
+                text.includes('trailer') ||
+                text.includes('startxref') ||
+                text.includes('%%EOF') ||
+                text.match(/^\d+\s+\d+\s+obj$/) || // PDF object references
+                text.match(/^\d+\s+\d+\s+R$/) || // PDF references
+                text.match(/^\/[A-Za-z]+$/) || // PDF commands
+                text.length < 2 || // Very short strings
+                !/[a-zA-Z]/.test(text) // No letters
+              ) {
+                return ""
+              }
+              
               // Add spacing based on text positioning
               const space = item.hasEOL ? '\n' : ' '
-              return item.str + space
+              return text + space
             }
             return ""
           })
+          .filter(text => text.trim().length > 0) // Remove empty items
           .join("")
           .replace(/\s+/g, " ") // Normalize whitespace
           .replace(/\n\s+/g, "\n") // Clean up line breaks
@@ -235,6 +277,42 @@ export async function POST(req: Request) {
         if (textMatches && textMatches.length > 0) {
           const textFromObjects = textMatches
             .map(match => match.replace(/^BT\s*/, '').replace(/\s*ET$/, ''))
+            .filter(text => {
+              // Filter out PDF metadata
+              const cleanText = text.trim()
+              return cleanText.length > 2 && 
+                     /[a-zA-Z]/.test(cleanText) && 
+                     !cleanText.includes('obj') &&
+                     !cleanText.includes('Type') &&
+                     !cleanText.includes('Subtype') &&
+                     !cleanText.includes('Border') &&
+                     !cleanText.includes('Rect') &&
+                     !cleanText.includes('FontDescriptor') &&
+                     !cleanText.includes('BaseFont') &&
+                     !cleanText.includes('FontName') &&
+                     !cleanText.includes('FontBBox') &&
+                     !cleanText.includes('Flags') &&
+                     !cleanText.includes('ItalicAngle') &&
+                     !cleanText.includes('Ascent') &&
+                     !cleanText.includes('Descent') &&
+                     !cleanText.includes('CapHeight') &&
+                     !cleanText.includes('StemV') &&
+                     !cleanText.includes('XHeight') &&
+                     !cleanText.includes('CharSet') &&
+                     !cleanText.includes('FontFile') &&
+                     !cleanText.includes('Length') &&
+                     !cleanText.includes('Filter') &&
+                     !cleanText.includes('DecodeParms') &&
+                     !cleanText.includes('stream') &&
+                     !cleanText.includes('endstream') &&
+                     !cleanText.includes('xref') &&
+                     !cleanText.includes('trailer') &&
+                     !cleanText.includes('startxref') &&
+                     !cleanText.includes('%%EOF') &&
+                     !cleanText.match(/^\d+\s+\d+\s+obj$/) &&
+                     !cleanText.match(/^\d+\s+\d+\s+R$/) &&
+                     !cleanText.match(/^\/[A-Za-z]+$/)
+            })
             .join(' ')
             .replace(/\\[rn]/g, ' ')
             .replace(/\\[()]/g, '')
@@ -253,7 +331,41 @@ export async function POST(req: Request) {
         if (parenMatches && parenMatches.length > 0) {
           const textFromParens = parenMatches
             .map(match => match.slice(1, -1))
-            .filter(text => text.length > 2 && /[a-zA-Z]/.test(text)) // Filter meaningful text
+            .filter(text => {
+              const cleanText = text.trim()
+              return cleanText.length > 2 && 
+                     /[a-zA-Z]/.test(cleanText) && 
+                     !cleanText.includes('obj') &&
+                     !cleanText.includes('Type') &&
+                     !cleanText.includes('Subtype') &&
+                     !cleanText.includes('Border') &&
+                     !cleanText.includes('Rect') &&
+                     !cleanText.includes('FontDescriptor') &&
+                     !cleanText.includes('BaseFont') &&
+                     !cleanText.includes('FontName') &&
+                     !cleanText.includes('FontBBox') &&
+                     !cleanText.includes('Flags') &&
+                     !cleanText.includes('ItalicAngle') &&
+                     !cleanText.includes('Ascent') &&
+                     !cleanText.includes('Descent') &&
+                     !cleanText.includes('CapHeight') &&
+                     !cleanText.includes('StemV') &&
+                     !cleanText.includes('XHeight') &&
+                     !cleanText.includes('CharSet') &&
+                     !cleanText.includes('FontFile') &&
+                     !cleanText.includes('Length') &&
+                     !cleanText.includes('Filter') &&
+                     !cleanText.includes('DecodeParms') &&
+                     !cleanText.includes('stream') &&
+                     !cleanText.includes('endstream') &&
+                     !cleanText.includes('xref') &&
+                     !cleanText.includes('trailer') &&
+                     !cleanText.includes('startxref') &&
+                     !cleanText.includes('%%EOF') &&
+                     !cleanText.match(/^\d+\s+\d+\s+obj$/) &&
+                     !cleanText.match(/^\d+\s+\d+\s+R$/) &&
+                     !cleanText.match(/^\/[A-Za-z]+$/)
+            })
             .join(' ')
             .replace(/\\[rn]/g, ' ')
             .replace(/[^\w\s.,!?;:()\-@#&]/g, ' ')
@@ -387,11 +499,14 @@ export async function POST(req: Request) {
       .replace(/\s+$/gm, "") // Remove trailing spaces from lines
       .trim()
     
-    // Additional cleaning for common PDF artifacts
+    // Additional cleaning for common PDF artifacts and metadata
     rawText = rawText
       .replace(/\b\w{1,2}\s+/g, " ") // Remove very short words (likely artifacts)
       .replace(/\s+([.!?])/g, "$1") // Fix spacing before punctuation
       .replace(/([a-z])([A-Z])/g, "$1 $2") // Add spaces between camelCase
+      .replace(/\b(obj|Type|Subtype|Border|Rect|FontDescriptor|BaseFont|FontName|FontBBox|Flags|ItalicAngle|Ascent|Descent|CapHeight|StemV|XHeight|CharSet|FontFile|Length|Filter|DecodeParms|stream|endstream|xref|trailer|startxref|%%EOF)\b/g, " ") // Remove PDF metadata terms
+      .replace(/\b\d+\s+\d+\s+(obj|R)\b/g, " ") // Remove PDF object references
+      .replace(/\b\/[A-Za-z]+\b/g, " ") // Remove PDF commands
       .replace(/\s+/g, " ") // Final whitespace normalization
       .trim()
     
