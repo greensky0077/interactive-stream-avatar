@@ -1,6 +1,8 @@
 /**
- * @fileoverview Persistent RAG store for chunks and embeddings using global cache.
+ * @fileoverview Persistent RAG store for chunks and embeddings using global cache and file backup.
  */
+
+import { saveRagCache, loadRagCache, clearRagCache } from './rag-cache'
 
 export type RagChunk = {
   id: string
@@ -23,6 +25,13 @@ declare global {
   var __ragStore: RagStore | undefined
 }
 
+// Fallback in-memory store for when global doesn't work
+let fallbackStore: RagStore = {
+  chunks: [],
+  embeddings: [],
+  timestamp: 0
+}
+
 // Initialize global store if it doesn't exist
 if (!global.__ragStore) {
   global.__ragStore = {
@@ -32,22 +41,56 @@ if (!global.__ragStore) {
   }
 }
 
-function getRagStore(): RagStore {
-  return global.__ragStore!
+async function getRagStore(): Promise<RagStore> {
+  // Try global store first
+  if (global.__ragStore && global.__ragStore.timestamp > 0) {
+    console.log('Using global RAG store')
+    return global.__ragStore
+  }
+  
+  // Try fallback store
+  if (fallbackStore.timestamp > 0) {
+    console.log('Using fallback RAG store')
+    return fallbackStore
+  }
+  
+  // Try file cache as last resort
+  const fileStore = await loadRagCache()
+  if (fileStore) {
+    console.log('Using file RAG cache')
+    // Update both stores with file data
+    global.__ragStore = fileStore
+    fallbackStore = fileStore
+    return fileStore
+  }
+  
+  console.log('No RAG store found, using empty fallback')
+  return fallbackStore
 }
 
-function setRagStore(store: RagStore): void {
+async function setRagStore(store: RagStore): Promise<void> {
+  // Set both global and fallback stores
   global.__ragStore = store
+  fallbackStore = store
+  
+  // Also save to file cache as backup
+  await saveRagCache(store)
 }
 
 export async function getRagChunks(): Promise<RagChunk[]> {
-  const store = getRagStore()
+  const store = await getRagStore()
+  const isGlobalStore = store === global.__ragStore
+  
+  console.log(`RAG store source: ${isGlobalStore ? 'global' : 'fallback'}`)
+  console.log(`Global store exists: ${!!global.__ragStore}`)
+  console.log(`Global store timestamp: ${global.__ragStore?.timestamp || 0}`)
+  console.log(`Fallback store timestamp: ${fallbackStore.timestamp}`)
   
   // Check if store is not too old (24 hours)
   const now = Date.now()
   if (now - store.timestamp > 24 * 60 * 60 * 1000) {
     console.log('RAG store expired, clearing...')
-    setRagStore({ chunks: [], embeddings: [], timestamp: 0 })
+    await setRagStore({ chunks: [], embeddings: [], timestamp: 0 })
     return []
   }
   
@@ -56,13 +99,17 @@ export async function getRagChunks(): Promise<RagChunk[]> {
 }
 
 export async function getRagEmbeddings(): Promise<RagEmbedding[]> {
-  const store = getRagStore()
+  const store = await getRagStore()
+  const isGlobalStore = store === global.__ragStore
+  
+  console.log(`RAG embeddings source: ${isGlobalStore ? 'global' : 'fallback'}`)
+  console.log(`Embeddings count: ${store.embeddings.length}`)
   
   // Check if store is not too old (24 hours)
   const now = Date.now()
   if (now - store.timestamp > 24 * 60 * 60 * 1000) {
     console.log('RAG store expired, clearing...')
-    setRagStore({ chunks: [], embeddings: [], timestamp: 0 })
+    await setRagStore({ chunks: [], embeddings: [], timestamp: 0 })
     return []
   }
   
@@ -75,12 +122,13 @@ export async function setRagData(chunks: RagChunk[], embeddings: RagEmbedding[])
     embeddings,
     timestamp: Date.now()
   }
-  setRagStore(store)
+  await setRagStore(store)
   console.log(`Saved RAG store: ${chunks.length} chunks, ${embeddings.length} embeddings`)
 }
 
 export async function clearRagStore(): Promise<void> {
-  setRagStore({ chunks: [], embeddings: [], timestamp: 0 })
+  await setRagStore({ chunks: [], embeddings: [], timestamp: 0 })
+  await clearRagCache()
   console.log('RAG store cleared')
 }
 
