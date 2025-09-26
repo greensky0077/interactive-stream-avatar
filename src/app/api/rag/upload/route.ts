@@ -58,93 +58,94 @@ export async function POST(req: Request) {
     const arr = new Uint8Array(await file.arrayBuffer())
     console.log(`File converted to buffer: ${arr.length} bytes`)
     
-    // Try multiple PDF parsing approaches
+    // Use pdfjs-dist for reliable PDF parsing
     let parsed: any
-    let parsingMethod = ""
+    let parsingMethod = "pdfjs-dist"
     
-    // Method 1: Try pdf-parse with buffer
     try {
-      const pdfModule = await import("pdf-parse")
-      const pdfParse = pdfModule.default
-      console.log("PDF parser imported successfully")
+      console.log("Importing PDF.js library...")
+      const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs")
+      console.log("PDF.js imported successfully")
       
-      // Create a clean buffer without any file system references
-      const cleanBuffer = Buffer.from(arr)
-      parsed = await pdfParse(cleanBuffer)
-      parsingMethod = "pdf-parse"
-      console.log("PDF parsed successfully with pdf-parse")
-    } catch (parseError: any) {
-      console.error("pdf-parse failed:", parseError)
+      // Configure PDF.js for serverless environment
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`
       
-      // Method 2: Try pdfjs-dist as fallback
-      try {
-        const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs")
-        console.log("PDF.js imported successfully")
+      console.log("Loading PDF document...")
+      // Load the PDF document from buffer
+      const loadingTask = pdfjsLib.getDocument({ 
+        data: arr,
+        useSystemFonts: true,
+        disableFontFace: true,
+        disableRange: true,
+        disableStream: true
+      })
+      
+      const pdfDoc = await loadingTask.promise
+      console.log(`PDF loaded successfully: ${pdfDoc.numPages} pages`)
+      
+      // Extract text from all pages
+      let fullText = ""
+      for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+        console.log(`Processing page ${pageNum}/${pdfDoc.numPages}`)
+        const page = await pdfDoc.getPage(pageNum)
+        const textContent = await page.getTextContent()
         
-        // Load the PDF document
-        const loadingTask = pdfjsLib.getDocument({ data: arr })
-        const pdfDoc = await loadingTask.promise
-        console.log(`PDF loaded: ${pdfDoc.numPages} pages`)
+        const pageText = textContent.items
+          .map((item: any) => item.str)
+          .join(" ")
+          .trim()
         
-        // Extract text from all pages
-        let fullText = ""
-        for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
-          const page = await pdfDoc.getPage(pageNum)
-          const textContent = await page.getTextContent()
-          const pageText = textContent.items
-            .map((item: any) => item.str)
-            .join(" ")
+        if (pageText) {
           fullText += pageText + "\n"
         }
+      }
+      
+      parsed = { text: fullText }
+      console.log(`PDF parsed successfully with pdfjs-dist: ${fullText.length} characters extracted`)
+      
+    } catch (pdfjsError: any) {
+      console.error("PDF.js parsing failed:", pdfjsError)
+      
+      // Fallback: Simple text extraction from PDF structure
+      try {
+        console.log("Attempting fallback text extraction...")
+        const bufferString = Buffer.from(arr).toString('binary')
         
-        parsed = { text: fullText }
-        parsingMethod = "pdfjs-dist"
-        console.log("PDF parsed successfully with pdfjs-dist")
-      } catch (pdfjsError: any) {
-        console.error("pdfjs-dist also failed:", pdfjsError)
+        // Look for text objects in PDF structure
+        const textMatches = bufferString.match(/\(([^)]+)\)/g)
+        let extractedText = ""
         
-        // Method 3: Simple text extraction fallback
-        try {
-          // Convert buffer to string and try to extract readable text
-          const bufferString = Buffer.from(arr).toString('utf8')
-          const textMatch = bufferString.match(/BT\s+([^E]+)ET/g)
-          let extractedText = ""
-          
-          if (textMatch) {
-            extractedText = textMatch
-              .map(match => match.replace(/BT\s+/, '').replace(/ET/, ''))
-              .join(' ')
-              .replace(/[^\w\s]/g, ' ')
-              .replace(/\s+/g, ' ')
-              .trim()
-          }
-          
-          if (extractedText.length > 100) {
-            parsed = { text: extractedText }
-            parsingMethod = "fallback-extraction"
-            console.log("PDF parsed successfully with fallback extraction")
-          } else {
-            throw new Error("No readable text found in PDF")
-          }
-        } catch (fallbackError: any) {
-          console.error("All parsing methods failed:", fallbackError)
-          
-          // Check if it's the specific ENOENT error we're seeing
-          if (parseError.message && parseError.message.includes("ENOENT")) {
-            return Response.json({ 
-              error: "PDF parsing failed: Server configuration issue",
-              details: "The PDF parsing library encountered a file system error. This appears to be a server-side configuration issue.",
-              suggestion: "Please try uploading a different PDF file or contact support if the issue persists.",
-              technicalDetails: parseError.message
-            }, { status: 500 })
-          }
-          
-          return Response.json({ 
-            error: "PDF parsing failed: Unable to extract text from PDF",
-            details: "All PDF parsing methods failed. The file may be corrupted, password-protected, or in an unsupported format.",
-            suggestion: "Please ensure the PDF contains readable text and is not password-protected."
-          }, { status: 500 })
+        if (textMatches) {
+          extractedText = textMatches
+            .map(match => match.slice(1, -1)) // Remove parentheses
+            .join(' ')
+            .replace(/\\[rn]/g, ' ') // Replace escape sequences
+            .replace(/[^\w\s.,!?;:()-]/g, ' ') // Keep only readable characters
+            .replace(/\s+/g, ' ') // Normalize whitespace
+            .trim()
         }
+        
+        if (extractedText.length > 50) {
+          parsed = { text: extractedText }
+          parsingMethod = "fallback-extraction"
+          console.log(`Fallback extraction successful: ${extractedText.length} characters`)
+        } else {
+          throw new Error("Insufficient text extracted")
+        }
+        
+      } catch (fallbackError: any) {
+        console.error("All parsing methods failed:", fallbackError)
+        
+        return Response.json({ 
+          error: "PDF parsing failed: Unable to extract text from PDF",
+          details: `PDF.js error: ${pdfjsError.message}. Fallback error: ${fallbackError.message}`,
+          suggestion: "Please ensure the PDF contains readable text, is not password-protected, and is not corrupted.",
+          technicalInfo: {
+            fileSize: arr.length,
+            fileName: file.name,
+            errorType: "PDF_PARSING_FAILED"
+          }
+        }, { status: 500 })
       }
     }
     
